@@ -1,9 +1,10 @@
 use portable_pty::{native_pty_system,CommandBuilder, PtySize};
-use std::io::{Read, Write}
+use std::io::{Read, Write};
 
 use std::thread;
+use anyhow::{Context, Result};
 
-fn main() -> anyhow:Result<()>{
+fn main() -> anyhow::Result<()>{
     let pty_system = native_pty_system();
 
     let pair = pty_system.openpty(PtySize{
