@@ -1,0 +1,10 @@
+/Users/prashantdubey/Better_Kitty/terrek/target/debug/deps/portable_pty-840d7f52e308ba98.d: /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/lib.rs /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/cmdbuilder.rs /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/unix.rs /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/serial.rs
+
+/Users/prashantdubey/Better_Kitty/terrek/target/debug/deps/libportable_pty-840d7f52e308ba98.rlib: /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/lib.rs /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/cmdbuilder.rs /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/unix.rs /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/serial.rs
+
+/Users/prashantdubey/Better_Kitty/terrek/target/debug/deps/libportable_pty-840d7f52e308ba98.rmeta: /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/lib.rs /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/cmdbuilder.rs /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/unix.rs /Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/serial.rs
+
+/Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/lib.rs:
+/Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/cmdbuilder.rs:
+/Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/unix.rs:
+/Users/prashantdubey/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/portable-pty-0.9.0/src/serial.rs:
