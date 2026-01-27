@@ -1,0 +1,14 @@
+[package]
+name = "terrek"
+version = "0.1.0"
+edition = "2024"
+
+
+[[bin]]
+name = "terrek"
+path = "Terrek_Cli/main.rs"
+
+
+[dependencies]
+tui = "0.19"           # TUI library for layouts and widgets
+crossterm = "0.25"     # Crossterm for terminal management
