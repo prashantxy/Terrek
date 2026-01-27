@@ -2,7 +2,7 @@ use portable_pty::{native_pty_system,CommandBuilder, PtySize};
 use std::io::{Read, Write};
 
 use std::thread;
-use anyhow::{Context, Result};
+
 
 fn main() -> anyhow::Result<()>{
     let pty_system = native_pty_system();
@@ -14,9 +14,9 @@ fn main() -> anyhow::Result<()>{
         pixel_height:0,
     })?;
 
-    let mut cmd = CommandBuilder::new("/bin/bash");
+    let  cmd = CommandBuilder::new("/bin/bash");
 
-    let child = pair.slave.spawn_command(cmd)?;
+    let _child = pair.slave.spawn_command(cmd)?;
 
     let mut reader = pair.master.try_clone_reader()?;
     let mut writer = pair.master.take_writer()?;
