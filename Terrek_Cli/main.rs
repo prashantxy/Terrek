@@ -3,15 +3,23 @@ use std::io::{Read, Write};
 use std::thread;
 
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent},
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     terminal::{enable_raw_mode, disable_raw_mode},
 };
 
+enum Mode {
+    Shell,
+    Command,
+}
+
 fn main() -> anyhow::Result<()> {
-    // 1️⃣ Enable raw mode
+    // ---  Setup ---
+    let mut mode = Mode::Shell;
+    let mut command_buffer = String::new();
+
     enable_raw_mode()?;
 
-    // 2️⃣ Create PTY
+    // --- 1️⃣ Create PTY ---
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: 24,
@@ -20,35 +28,71 @@ fn main() -> anyhow::Result<()> {
         pixel_height: 0,
     })?;
 
-    // 3️⃣ Spawn shell
+    // --- 2️⃣ Spawn shell ---
     let cmd = CommandBuilder::new("/bin/bash");
     let _child = pair.slave.spawn_command(cmd)?;
 
     let mut reader = pair.master.try_clone_reader()?;
-    let mut writer = pair.master.take_writer()?;
+    let mut mut_writer = pair.master.take_writer()?; // mutable writer
 
-    // 4️⃣ Shell output thread
+    // --- 3️⃣ PTY output thread ---
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
         loop {
-            let n = reader.read(&mut buffer).unwrap();
-            print!("{}", String::from_utf8_lossy(&buffer[..n]));
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    print!("{}", String::from_utf8_lossy(&buffer[..n]));
+                }
+                Err(_) => break,
+            }
         }
     });
 
-    // 5️⃣ Keyboard → PTY
+    // --- 4️⃣ Keyboard input loop ---
     loop {
-        if let Event::Key(KeyEvent { code, .. }) = event::read()? {
+        if let Event::Key(KeyEvent { code, modifiers, kind: _, state: _ }) = event::read()? {
+
             match code {
-                KeyCode::Char(c) => {
-                    writer.write_all(&[c as u8])?;
+                // Ctrl+X → Enter command mode
+                KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    mode = Mode::Command;
+                    command_buffer.clear();
+                    print!("\n[Terrek Command Mode] > ");
                 }
-                KeyCode::Enter => {
-                    writer.write_all(b"\r")?;
-                }
-                KeyCode::Backspace => {
-                    writer.write_all(b"\x7f")?;
-                }
+
+                KeyCode::Char(c) => match mode {
+                    Mode::Shell => {
+                        mut_writer.write_all(&[c as u8])?;
+                    }
+                    Mode::Command => {
+                        command_buffer.push(c);
+                        print!("{}", c); // show typed command
+                    }
+                },
+
+                KeyCode::Enter => match mode {
+                    Mode::Shell => {
+                        mut_writer.write_all(b"\r")?;
+                    }
+                    Mode::Command => {
+                        println!();
+                        execute_terrek_command(&command_buffer, &mut mut_writer)?;
+                        command_buffer.clear();
+                        mode = Mode::Shell;
+                    }
+                },
+
+                KeyCode::Backspace => match mode {
+                    Mode::Shell => {
+                        mut_writer.write_all(b"\x7f")?;
+                    }
+                    Mode::Command => {
+                        command_buffer.pop();
+                        print!("\x08 \x08"); // erase last char in terminal
+                    }
+                },
+
                 KeyCode::Esc => break,
                 _ => {}
             }
@@ -56,5 +100,25 @@ fn main() -> anyhow::Result<()> {
     }
 
     disable_raw_mode()?;
+    Ok(())
+}
+
+// --- Example Terrek commands ---
+fn execute_terrek_command(
+    cmd: &str,
+    _writer: &mut dyn Write,
+) -> anyhow::Result<()> {
+    match cmd.trim() {
+        ":hello" => println!(" Hello from Terrek!"),
+        ":time" => {
+            println!(" Current time: {}", chrono::Local::now());
+        }
+        ":clear" => {
+            print!("\x1B[2J\x1B[1;1H"); // ANSI clear screen
+        }
+        _ => {
+            println!("Unknown Terrek command: {}", cmd);
+        }
+    }
     Ok(())
 }
