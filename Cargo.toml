@@ -12,3 +12,5 @@ path = "Terrek_Cli/main.rs"
 [dependencies]
 tui = "0.19"           # TUI library for layouts and widgets
 crossterm = "0.25"     # Crossterm for terminal management
+portable-pty = "0.9.0"
+anyhow = "1.0.100"
