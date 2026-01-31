@@ -1,10 +1,10 @@
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use std::io::{Read, Write};
 use std::thread;
 
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    terminal::{enable_raw_mode, disable_raw_mode},
+    terminal::{disable_raw_mode, enable_raw_mode},
 };
 
 enum Mode {
@@ -13,13 +13,11 @@ enum Mode {
 }
 
 fn main() -> anyhow::Result<()> {
-    // ---  Setup ---
     let mut mode = Mode::Shell;
     let mut command_buffer = String::new();
 
     enable_raw_mode()?;
 
-    // --- 1️⃣ Create PTY ---
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: 24,
@@ -28,14 +26,12 @@ fn main() -> anyhow::Result<()> {
         pixel_height: 0,
     })?;
 
-    // --- 2️⃣ Spawn shell ---
     let cmd = CommandBuilder::new("/bin/bash");
     let _child = pair.slave.spawn_command(cmd)?;
 
     let mut reader = pair.master.try_clone_reader()?;
-    let mut mut_writer = pair.master.take_writer()?; // mutable writer
+    let mut mut_writer = pair.master.take_writer()?;
 
-    // --- 3️⃣ PTY output thread ---
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
         loop {
@@ -49,12 +45,15 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    // --- 4️⃣ Keyboard input loop ---
     loop {
-        if let Event::Key(KeyEvent { code, modifiers, kind: _, state: _ }) = event::read()? {
-
+        if let Event::Key(KeyEvent {
+            code,
+            modifiers,
+            kind: _,
+            state: _,
+        }) = event::read()?
+        {
             match code {
-                // Ctrl+X → Enter command mode
                 KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
                     mode = Mode::Command;
                     command_buffer.clear();
@@ -67,7 +66,7 @@ fn main() -> anyhow::Result<()> {
                     }
                     Mode::Command => {
                         command_buffer.push(c);
-                        print!("{}", c); // show typed command
+                        print!("{}", c);
                     }
                 },
 
@@ -89,7 +88,7 @@ fn main() -> anyhow::Result<()> {
                     }
                     Mode::Command => {
                         command_buffer.pop();
-                        print!("\x08 \x08"); // erase last char in terminal
+                        print!("\x08 \x08");
                     }
                 },
 
@@ -103,18 +102,14 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-// --- Example Terrek commands ---
-fn execute_terrek_command(
-    cmd: &str,
-    _writer: &mut dyn Write,
-) -> anyhow::Result<()> {
+fn execute_terrek_command(cmd: &str, _writer: &mut dyn Write) -> anyhow::Result<()> {
     match cmd.trim() {
-        ":hello" => println!(" Hello from Terrek!"),
-        ":time" => {
+        "terrek hello" => println!(" Hello from Terrek!"),
+        "terrek time" => {
             println!(" Current time: {}", chrono::Local::now());
         }
-        ":clear" => {
-            print!("\x1B[2J\x1B[1;1H"); // ANSI clear screen
+        "terrek clear" => {
+            print!("\x1B[2J\x1B[1;1H");
         }
         _ => {
             println!("Unknown Terrek command: {}", cmd);
