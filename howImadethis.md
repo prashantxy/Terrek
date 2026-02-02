@@ -17,3 +17,6 @@ PTY created
 bash prints startup messages
    ↓
 output forwarded back to your terminal
+
+
+making it for all session would kill lots of memory so rather make it for a particular session at max 3 and once the user would want to store more they can replace the shit
