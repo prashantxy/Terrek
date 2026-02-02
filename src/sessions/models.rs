@@ -1,8 +1,8 @@
 pub struct Session{
-    pub id : String;
+    pub id : String,
 }
 
 pub struct CommandRecord{
-    pub Command : String;
-    pub Output : String;
+    pub Command : String,
+    pub Output : String,
 }
