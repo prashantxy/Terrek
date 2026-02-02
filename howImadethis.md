@@ -38,3 +38,7 @@ recorder → channel → db/worker → SQLite
 commands → db/worker (queries)
 
 this could ne the possible architecture for the current setup??????????
+
+
+
+Terrek = PTY terminal + persistent memory engine.

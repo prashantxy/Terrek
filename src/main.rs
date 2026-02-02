@@ -1,5 +1,6 @@
-use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::{Read, Write};
+use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
 use crossterm::{
@@ -7,17 +8,29 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 
+mod db;
+use db::worker::{start_db_worker, DbEvent};
+
 enum Mode {
     Shell,
     Command,
 }
 
 fn main() -> anyhow::Result<()> {
+    enable_raw_mode()?;
+
+    // ✅ Start DB worker
+    let db_tx: Sender<DbEvent> = start_db_worker();
+    let session_id = uuid::Uuid::new_v4().to_string();
+
+    // ✅ Buffers for recording
+    let mut current_shell_input = String::new();
+    let mut current_output = String::new();
+
     let mut mode = Mode::Shell;
     let mut command_buffer = String::new();
 
-    enable_raw_mode()?;
-
+    // ✅ PTY setup
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: 24,
@@ -30,7 +43,10 @@ fn main() -> anyhow::Result<()> {
     let _child = pair.slave.spawn_command(cmd)?;
 
     let mut reader = pair.master.try_clone_reader()?;
-    let mut mut_writer = pair.master.take_writer()?;
+    let mut writer = pair.master.take_writer()?;
+
+    // ✅ Channel to receive PTY output
+    let (out_tx, out_rx) = channel::<String>();
 
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
@@ -38,21 +54,24 @@ fn main() -> anyhow::Result<()> {
             match reader.read(&mut buffer) {
                 Ok(0) => break,
                 Ok(n) => {
-                    print!("{}", String::from_utf8_lossy(&buffer[..n]));
+                    let text = String::from_utf8_lossy(&buffer[..n]).to_string();
+                    out_tx.send(text).ok();
                 }
                 Err(_) => break,
             }
         }
     });
 
+    // ✅ Main loop
     loop {
-        if let Event::Key(KeyEvent {
-            code,
-            modifiers,
-            kind: _,
-            state: _,
-        }) = event::read()?
-        {
+        // 1️⃣ Print PTY output and record it
+        while let Ok(text) = out_rx.try_recv() {
+            print!("{}", text);
+            current_output.push_str(&text);
+        }
+
+        // 2️⃣ Read keyboard
+        if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
             match code {
                 KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
                     mode = Mode::Command;
@@ -62,7 +81,8 @@ fn main() -> anyhow::Result<()> {
 
                 KeyCode::Char(c) => match mode {
                     Mode::Shell => {
-                        mut_writer.write_all(&[c as u8])?;
+                        current_shell_input.push(c);
+                        writer.write_all(&[c as u8])?;
                     }
                     Mode::Command => {
                         command_buffer.push(c);
@@ -72,11 +92,22 @@ fn main() -> anyhow::Result<()> {
 
                 KeyCode::Enter => match mode {
                     Mode::Shell => {
-                        mut_writer.write_all(b"\r")?;
+                        writer.write_all(b"\r")?;
+
+                        // ✅ Send to DB worker
+                        db_tx.send(DbEvent::StoreCommand {
+                            session_id: session_id.clone(),
+                            command: current_shell_input.clone(),
+                            output: current_output.clone(),
+                            timestamp: chrono::Local::now().timestamp(),
+                        })?;
+
+                        current_shell_input.clear();
+                        current_output.clear();
                     }
                     Mode::Command => {
                         println!();
-                        execute_terrek_command(&command_buffer, &mut mut_writer)?;
+                        execute_terrek_command(&command_buffer)?;
                         command_buffer.clear();
                         mode = Mode::Shell;
                     }
@@ -84,7 +115,8 @@ fn main() -> anyhow::Result<()> {
 
                 KeyCode::Backspace => match mode {
                     Mode::Shell => {
-                        mut_writer.write_all(b"\x7f")?;
+                        current_shell_input.pop();
+                        writer.write_all(b"\x7f")?;
                     }
                     Mode::Command => {
                         command_buffer.pop();
@@ -102,18 +134,12 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn execute_terrek_command(cmd: &str, _writer: &mut dyn Write) -> anyhow::Result<()> {
+fn execute_terrek_command(cmd: &str) -> anyhow::Result<()> {
     match cmd.trim() {
-        "terrek hello" => println!(" Hello from Terrek!"),
-        "terrek time" => {
-            println!(" Current time: {}", chrono::Local::now());
-        }
-        "terrek clear" => {
-            print!("\x1B[2J\x1B[1;1H");
-        }
-        _ => {
-            println!("Unknown Terrek command: {}", cmd);
-        }
+        "terrek hello" => println!("Hello from Terrek!"),
+        "terrek time" => println!("Current time: {}", chrono::Local::now()),
+        "terrek clear" => print!("\x1B[2J\x1B[1;1H"),
+        _ => println!("Unknown Terrek command: {}", cmd),
     }
     Ok(())
 }
