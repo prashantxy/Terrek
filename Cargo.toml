@@ -6,7 +6,7 @@ edition = "2024"
 
 [[bin]]
 name = "terrek"
-path = "Terrek_Cli/main.rs"
+path = "src/main.rs"
 
 
 [dependencies]
