@@ -1,11 +1,38 @@
-// Source - https://stackoverflow.com/q/72763578
-// Posted by cdaringe
-// Retrieved 2026-02-02, License - CC BY-SA 4.0
+use rusqlite::Connection;
 
-use sqlx::sqlite::{SqlitePoolOptions};
+pub fn init_db() -> anyhow::Result<Connection> {
+    let conn = Connection::open("terrek.db")?;
 
-SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect(&format!("sqlite://{}", db_filename))
-            .await
-            .map_err(|err| format!("{}\nfile: {}", err.to_string(), db_filename))?;
+    conn.execute_batch(
+        "
+        PRAGMA journal_mode=WAL;
+
+        CREATE TABLE IF NOT EXISTS commands (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT,
+            command TEXT,
+            output TEXT,
+            timestamp INTEGER
+        );
+        ",
+    )?;
+
+    Ok(conn)
+}
+
+pub fn store_command(
+    conn: &Connection,
+    session_id: &str,
+    command: &str,
+    output: &str,
+    timestamp: i64,
+) -> anyhow::Result<()> {
+    conn.execute(
+        "INSERT INTO commands (session_id, command, output, timestamp)
+         VALUES (?1, ?2, ?3, ?4)",
+        (session_id, command, output, timestamp),
+    )?;
+    Ok(())
+}
+
+pub mod worker;
