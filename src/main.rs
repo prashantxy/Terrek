@@ -19,18 +19,18 @@ enum Mode {
 fn main() -> anyhow::Result<()> {
     enable_raw_mode()?;
 
-    // ✅ Start DB worker
+    //  Start DB worker
     let db_tx: Sender<DbEvent> = start_db_worker();
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    // ✅ Buffers for recording
+    //  Buffers for recording
     let mut current_shell_input = String::new();
     let mut current_output = String::new();
 
     let mut mode = Mode::Shell;
     let mut command_buffer = String::new();
 
-    // ✅ PTY setup
+    // PTY setup
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: 24,
@@ -45,7 +45,7 @@ fn main() -> anyhow::Result<()> {
     let mut reader = pair.master.try_clone_reader()?;
     let mut writer = pair.master.take_writer()?;
 
-    // ✅ Channel to receive PTY output
+    // Channel to receive PTY output
     let (out_tx, out_rx) = channel::<String>();
 
     thread::spawn(move || {
@@ -62,9 +62,9 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    // ✅ Main loop
+    // Main loop
     loop {
-        // 1️⃣ Print PTY output and record it
+        // 1️Print PTY output and record it
         while let Ok(text) = out_rx.try_recv() {
             print!("{}", text);
             current_output.push_str(&text);
@@ -94,7 +94,7 @@ fn main() -> anyhow::Result<()> {
                     Mode::Shell => {
                         writer.write_all(b"\r")?;
 
-                        // ✅ Send to DB worker
+                        // Send to DB worker
                         db_tx.send(DbEvent::StoreCommand {
                             session_id: session_id.clone(),
                             command: current_shell_input.clone(),
@@ -116,7 +116,10 @@ fn main() -> anyhow::Result<()> {
                 KeyCode::Backspace => match mode {
                     Mode::Shell => {
                         current_shell_input.pop();
-                        writer.write_all(b"\x7f")?;
+                       current_shell_input.pop();
+                      print!("\x08 \x08");
+                    std::io::stdout().flush().ok();
+                   writer.write_all(b"\x7f")?;
                     }
                     Mode::Command => {
                         command_buffer.pop();

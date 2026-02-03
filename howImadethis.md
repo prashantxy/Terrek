@@ -42,3 +42,8 @@ this could ne the possible architecture for the current setup??????????
 
 
 Terrek = PTY terminal + persistent memory engine.
+
+
+Ctrl+X → type → Enter → stay in Terrek
+                          ↑
+                  until `terrek exit` OR `Esc`
