@@ -18,3 +18,8 @@ pub struct UserSessionRecords{
     pub usersessionrecord : String,
     pub timestamp : i64
 }
+
+pub struct Timeout{
+    pub series :String,
+    pub timestamp :i64
+}
