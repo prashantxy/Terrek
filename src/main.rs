@@ -1,3 +1,23 @@
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::io::{Read, Write};
+use std::sync::mpsc::{channel, Sender};
+use std::thread;
+
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
+
+mod db;
+use db::worker::{start_db_worker, DbEvent};
+
+enum Mode {
+    Shell,
+    Command,
+}
+
+
+
 fn main() -> anyhow::Result<()> {
     enable_raw_mode()?;
 
