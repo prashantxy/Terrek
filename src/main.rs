@@ -160,4 +160,15 @@ fn main() -> anyhow::Result<()> {
     //  Only happens after loop breaks
     disable_raw_mode()?;
     Ok(())
+    fn execute_terrek_command(cmd: &str) -> anyhow::Result<bool> {
+    match cmd.trim() {
+        "terrek hello" => println!("Hello from Terrek!"),
+        "terrek time" => println!("Current time: {}", chrono::Local::now()),
+        "terrek clear" => print!("\x1B[2J\x1B[1;1H"),
+        "terrek exit" => return Ok(true),  // signal exit
+        _ => println!("Unknown Terrek command: {}", cmd),
+    }
+    Ok(false)
 }
+}
+
