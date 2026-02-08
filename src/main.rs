@@ -1,29 +1,9 @@
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use std::io::{Read, Write};
-use std::sync::mpsc::{channel, Sender};
-use std::thread;
-
-use crossterm::{
-    event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
-    terminal::{disable_raw_mode, enable_raw_mode},
-};
-
-mod db;
-use db::worker::{start_db_worker, DbEvent};
-
-enum Mode {
-    Shell,
-    Command,
-}
-
 fn main() -> anyhow::Result<()> {
     enable_raw_mode()?;
 
-    //  Start DB worker
     let db_tx: Sender<DbEvent> = start_db_worker();
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    //  Buffers for recording
     let mut current_shell_input = String::new();
     let mut current_output = String::new();
 
@@ -45,9 +25,9 @@ fn main() -> anyhow::Result<()> {
     let mut reader = pair.master.try_clone_reader()?;
     let mut writer = pair.master.take_writer()?;
 
-    // Channel to receive PTY output
     let (out_tx, out_rx) = channel::<String>();
 
+    // Thread to read PTY output
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
         loop {
@@ -62,127 +42,102 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    // Main loop
+    // MAIN LOOP
     loop {
-    // 1️⃣ Print PTY output and record it
-    while let Ok(text) = out_rx.try_recv() {
-    for line in text.replace("\r", "").split('\n') {
-        if !line.trim().is_empty() {
-            println!("{}", line);
-            current_output.push_str(line);
-            current_output.push('\n');
+        // 1️Drain PTY output
+        while let Ok(text) = out_rx.try_recv() {
+            for line in text.replace("\r", "").split('\n') {
+                if !line.trim().is_empty() {
+                    println!("{}", line);
+                    current_output.push_str(line);
+                    current_output.push('\n');
+                }
+            }
         }
-    }
-}
 
-disable_raw_mode()?;
-Ok(())
+        // 2️Read keyboard
+        if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
+            match code {
+                KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    mode = Mode::Command;
+                    command_buffer.clear();
+                    println!("\n[Terrek] > ");
+                }
 
+                KeyCode::Char(c) => match mode {
+                    Mode::Shell => {
+                        current_shell_input.push(c);
+                        print!("{}", c);
+                        writer.write_all(&[c as u8])?;
+                    }
+                    Mode::Command => {
+                        command_buffer.push(c);
+                        print!("{}", c);
+                    }
+                },
 
+                KeyCode::Enter => match mode {
+                    Mode::Shell => {
+                        println!();
+                        writer.write_all(b"\r")?;
 
-    // 2️⃣ Read keyboard
-    if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
-        match code {
-            // Enter Command Mode
-            KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
-                mode = Mode::Command;
-                command_buffer.clear();
-                println!("\n[Terrek] > ");
-                std::io::stdout().flush().ok();
+                        db_tx.send(DbEvent::StoreCommand {
+                            session_id: session_id.clone(),
+                            command: current_shell_input.clone(),
+                            output: current_output.clone(),
+                            timestamp: chrono::Local::now().timestamp(),
+                        })?;
+
+                        current_shell_input.clear();
+                        current_output.clear();
+                    }
+
+                    Mode::Command => {
+                        println!();
+                        let should_exit = execute_terrek_command(&command_buffer)?;
+                        command_buffer.clear();
+
+                        if should_exit {
+                            mode = Mode::Shell;
+                            println!("[Back to Shell]");
+                        } else {
+                            print!("[Terrek] > ");
+                        }
+                    }
+                },
+
+                KeyCode::Backspace => match mode {
+                    Mode::Shell => {
+                        if !current_shell_input.is_empty() {
+                            current_shell_input.pop();
+                            print!("\x08 \x08");
+                            writer.write_all(b"\x7f")?;
+                        }
+                    }
+                    Mode::Command => {
+                        if !command_buffer.is_empty() {
+                            command_buffer.pop();
+                            print!("\x08 \x08");
+                        }
+                    }
+                },
+
+                KeyCode::Esc => match mode {
+                    Mode::Command => {
+                        mode = Mode::Shell;
+                        println!("\n[Back to Shell]");
+                    }
+                    Mode::Shell => break, // exit program
+                },
+
+                _ => {}
             }
 
-            // Character typing
-            KeyCode::Char(c) => match mode {
-                Mode::Shell => {
-                    current_shell_input.push(c);
-                    print!("{}", c);
-                    std::io::stdout().flush().ok();
-                    writer.write_all(&[c as u8])?;
-                }
-                Mode::Command => {
-                    command_buffer.push(c);
-                    print!("{}", c);
-                    std::io::stdout().flush().ok();
-                }
-            },
-
-            // ENTER key
-            KeyCode::Enter => match mode {
-                Mode::Shell => {
-                    println!();
-                    std::io::stdout().flush().ok();
-
-                    writer.write_all(b"\r")?;
-
-                    db_tx.send(DbEvent::StoreCommand {
-                        session_id: session_id.clone(),
-                        command: current_shell_input.clone(),
-                        output: current_output.clone(),
-                        timestamp: chrono::Local::now().timestamp(),
-                    })?;
-
-                    current_shell_input.clear();
-                    current_output.clear();
-                }
-
-                Mode::Command => {
-                    println!();
-                    let should_exit = execute_terrek_command(&command_buffer)?;
-                    command_buffer.clear();
-
-                    if should_exit {
-                        mode = Mode::Shell;
-                        println!("[Back to Shell]");
-                    } else {
-                        print!("[Terrek] > ");
-                    }
-
-                    std::io::stdout().flush().ok();
-                }
-            },
-
-            // Backspace handling
-            KeyCode::Backspace => match mode {
-                Mode::Shell => {
-                    if !current_shell_input.is_empty() {
-                        current_shell_input.pop();
-                        print!("\x08 \x08");
-                        std::io::stdout().flush().ok();
-                        writer.write_all(b"\x7f")?;
-                    }
-                }
-                Mode::Command => {
-                    if !command_buffer.is_empty() {
-                        command_buffer.pop();
-                        print!("\x08 \x08");
-                        std::io::stdout().flush().ok();
-                    }
-                }
-            },
-
-            // ESC behavior
-            KeyCode::Esc => match mode {
-                Mode::Command => {
-                    mode = Mode::Shell;
-                    println!("\n[Back to Shell]");
-                    std::io::stdout().flush().ok();
-                }
-                Mode::Shell => break,
-            },
-
-            _ => {}
+            std::io::stdout().flush().ok();
         }
     }
-}
 
-fn execute_terrek_command(cmd: &str) -> anyhow::Result<bool> {
-    match cmd.trim() {
-        "terrek hello" => println!("Hello from Terrek!"),
-        "terrek time" => println!("Current time: {}", chrono::Local::now()),
-        "terrek clear" => print!("\x1B[2J\x1B[1;1H"),
-        "terrek exit" => return Ok(true),  // signal exit
-        _ => println!("Unknown Terrek command: {}", cmd),
-    }
-    Ok(false)
-}
+    //  Only happens after loop breaks
+    disable_raw_mode()?;
+    Ok(())
 }
