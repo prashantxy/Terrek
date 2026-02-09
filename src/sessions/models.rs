@@ -8,4 +8,6 @@ pub struct CommandRecord{
 }
 
 
+pub struct TimeSeries
+
 
