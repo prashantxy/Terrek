@@ -9,28 +9,20 @@ use crossterm::{
 };
 
 mod db;
+mod commands;
+
 use db::worker::{start_db_worker, DbEvent};
+use commands::{handle_command, TerrekAction};
 
 enum Mode {
     Shell,
     Command,
 }
 
-fn execute_terrek_command(cmd: &str) -> anyhow::Result<bool> {
-    match cmd.trim() {
-        "terrek hello" => println!("\nHello from Terrek!"),
-        "terrek time" => println!("\nCurrent time: {}", chrono::Local::now()),
-        "terrek clear" => print!("\x1B[2J\x1B[1;1H"),
-        "terrek exit" => return Ok(true),
-        _ => println!("\nUnknown Terrek command: {}", cmd),
-    }
-    Ok(false)
-}
-
 fn main() -> anyhow::Result<()> {
     enable_raw_mode()?;
 
-    
+    // Ensure raw mode always disabled
     let _cleanup = scopeguard::guard((), |_| {
         disable_raw_mode().ok();
     });
@@ -125,10 +117,14 @@ fn main() -> anyhow::Result<()> {
 
                     Mode::Command => {
                         println!();
-                        let should_exit = execute_terrek_command(&command_buffer)?;
+
+                        let action = handle_command(
+                            command_buffer.trim_start_matches("terrek ").trim(),
+                        )?;
+
                         command_buffer.clear();
 
-                        if should_exit {
+                        if let TerrekAction::ExitToShell = action {
                             mode = Mode::Shell;
                             println!("[Back to Shell]");
                         } else {
@@ -164,9 +160,9 @@ fn main() -> anyhow::Result<()> {
                 },
 
                 _ => {}
-
             }
         }
     }
+
     Ok(())
 }

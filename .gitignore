@@ -4,6 +4,14 @@
 Cargo.lock
 !.cargo/config.toml
 
+# === SQLite (CRITICAL for Terrek) ===
+terrek.db
+terrek.db-shm
+terrek.db-wal
+*.db
+*.db-shm
+*.db-wal
+
 # === Environment files ===
 .env
 .env.*
@@ -30,6 +38,7 @@ flamegraph.svg
 coverage/
 tarpaulin-report.html
 
-# === Binaries (if you generate custom ones) ===
+# === Binaries / builds ===
 *.exe
 *.out
+*.dSYM

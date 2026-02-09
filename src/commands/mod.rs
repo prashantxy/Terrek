@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::{Local, TimeZone};
-use crate::db::worker::{get_history, search_history};
+
+use crate::db::history::{get_history, search_history};
 
 pub enum TerrekAction {
     Continue,
@@ -8,33 +9,23 @@ pub enum TerrekAction {
 }
 
 pub fn handle_command(cmd: &str) -> Result<TerrekAction> {
-    let input = cmd.trim();
-    let parts: Vec<&str> = input.split_whitespace().collect();
+    let parts: Vec<&str> = cmd.trim().split_whitespace().collect();
 
     if parts.is_empty() {
         return Ok(TerrekAction::Continue);
     }
 
     match parts[0] {
-        "hello" => println!("\nHello from Terrek!"),
+        "hello" => {
+            println!("\nHello from Terrek!");
+        }
 
-        "time" => println!("\nCurrent time: {}", Local::now()),
+        "time" => {
+            println!("\nCurrent time: {}", Local::now());
+        }
 
-        "clear" => print!("\x1B[2J\x1B[1;1H"),
-
-        "help" => {
-            println!(
-                r#"
-Terrek Commands:
-  terrek hello
-  terrek time
-  terrek clear
-  terrek history
-  terrek last
-  terrek search <keyword>
-  terrek exit
-"#
-            );
+        "clear" => {
+            print!("\x1B[2J\x1B[1;1H");
         }
 
         "history" => {
@@ -66,9 +57,26 @@ Terrek Commands:
             }
         }
 
+        "help" => {
+            println!(
+                r#"
+Terrek Commands:
+  terrek hello
+  terrek time
+  terrek clear
+  terrek history
+  terrek last
+  terrek search <keyword>
+  terrek exit
+"#
+            );
+        }
+
         "exit" => return Ok(TerrekAction::ExitToShell),
 
-        _ => println!("Unknown Terrek command: {}", input),
+        _ => {
+            println!("Unknown Terrek command");
+        }
     }
 
     Ok(TerrekAction::Continue)
