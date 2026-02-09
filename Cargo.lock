@@ -535,6 +535,7 @@ dependencies = [
  "crossterm",
  "portable-pty",
  "rusqlite",
+ "scopeguard",
  "termios",
  "tui",
  "uuid",

@@ -30,7 +30,7 @@ fn execute_terrek_command(cmd: &str) -> anyhow::Result<bool> {
 fn main() -> anyhow::Result<()> {
     enable_raw_mode()?;
 
-    // Ensure raw mode is always disabled
+    
     let _cleanup = scopeguard::guard((), |_| {
         disable_raw_mode().ok();
     });
@@ -164,7 +164,9 @@ fn main() -> anyhow::Result<()> {
                 },
 
                 _ => {}
+
             }
         }
     }
+    Ok(())
 }
