@@ -16,10 +16,24 @@ enum Mode {
     Command,
 }
 
-
+fn execute_terrek_command(cmd: &str) -> anyhow::Result<bool> {
+    match cmd.trim() {
+        "terrek hello" => println!("\nHello from Terrek!"),
+        "terrek time" => println!("\nCurrent time: {}", chrono::Local::now()),
+        "terrek clear" => print!("\x1B[2J\x1B[1;1H"),
+        "terrek exit" => return Ok(true),
+        _ => println!("\nUnknown Terrek command: {}", cmd),
+    }
+    Ok(false)
+}
 
 fn main() -> anyhow::Result<()> {
     enable_raw_mode()?;
+
+    // Ensure raw mode is always disabled
+    let _cleanup = scopeguard::guard((), |_| {
+        disable_raw_mode().ok();
+    });
 
     let db_tx: Sender<DbEvent> = start_db_worker();
     let session_id = uuid::Uuid::new_v4().to_string();
@@ -64,18 +78,14 @@ fn main() -> anyhow::Result<()> {
 
     // MAIN LOOP
     loop {
-        // 1️Drain PTY output
+        // Drain PTY output
         while let Ok(text) = out_rx.try_recv() {
-            for line in text.replace("\r", "").split('\n') {
-                if !line.trim().is_empty() {
-                    println!("{}", line);
-                    current_output.push_str(line);
-                    current_output.push('\n');
-                }
-            }
+            print!("{}", text);
+            std::io::stdout().flush().ok();
+            current_output.push_str(&text);
         }
 
-        // 2️Read keyboard
+        // Read keyboard
         if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
             match code {
                 KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
@@ -87,19 +97,20 @@ fn main() -> anyhow::Result<()> {
                 KeyCode::Char(c) => match mode {
                     Mode::Shell => {
                         current_shell_input.push(c);
-                        print!("{}", c);
                         writer.write_all(&[c as u8])?;
+                        writer.flush()?;
                     }
                     Mode::Command => {
                         command_buffer.push(c);
                         print!("{}", c);
+                        std::io::stdout().flush().ok();
                     }
                 },
 
                 KeyCode::Enter => match mode {
                     Mode::Shell => {
-                        println!();
                         writer.write_all(b"\r")?;
+                        writer.flush()?;
 
                         db_tx.send(DbEvent::StoreCommand {
                             session_id: session_id.clone(),
@@ -122,6 +133,7 @@ fn main() -> anyhow::Result<()> {
                             println!("[Back to Shell]");
                         } else {
                             print!("[Terrek] > ");
+                            std::io::stdout().flush().ok();
                         }
                     }
                 },
@@ -130,14 +142,15 @@ fn main() -> anyhow::Result<()> {
                     Mode::Shell => {
                         if !current_shell_input.is_empty() {
                             current_shell_input.pop();
-                            print!("\x08 \x08");
                             writer.write_all(b"\x7f")?;
+                            writer.flush()?;
                         }
                     }
                     Mode::Command => {
                         if !command_buffer.is_empty() {
                             command_buffer.pop();
                             print!("\x08 \x08");
+                            std::io::stdout().flush().ok();
                         }
                     }
                 },
@@ -147,28 +160,11 @@ fn main() -> anyhow::Result<()> {
                         mode = Mode::Shell;
                         println!("\n[Back to Shell]");
                     }
-                    Mode::Shell => break, // exit program
+                    Mode::Shell => break,
                 },
 
                 _ => {}
             }
-
-            std::io::stdout().flush().ok();
         }
     }
-
-    //  Only happens after loop breaks
-    disable_raw_mode()?;
-    Ok(())
-    fn execute_terrek_command(cmd: &str) -> anyhow::Result<bool> {
-    match cmd.trim() {
-        "terrek hello" => println!("Hello from Terrek!"),
-        "terrek time" => println!("Current time: {}", chrono::Local::now()),
-        "terrek clear" => print!("\x1B[2J\x1B[1;1H"),
-        "terrek exit" => return Ok(true),  // signal exit
-        _ => println!("Unknown Terrek command: {}", cmd),
-    }
-    Ok(false)
 }
-}
-
