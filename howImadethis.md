@@ -47,3 +47,10 @@ Terrek = PTY terminal + persistent memory engine.
 Ctrl+X → type → Enter → stay in Terrek
                           ↑
                   until `terrek exit` OR `Esc`
+
+
+                  so now i have came to the point where my db works and along with it my all the alignment works properly but only my pty screen faces problem because i currently just do pty->print.     in place of this i should be doing pty -> bufffer -> rendered -> screen 
+
+
+                  let's do this very properly 
+PTY output → screen_buffer → render() → terminal

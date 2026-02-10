@@ -19,10 +19,48 @@ enum Mode {
     Command,
 }
 
+struct Screen {
+    lines: Vec<String>,
+}
+
+impl Screen {
+    fn new() -> Self {
+        Self { lines: Vec::new() }
+    }
+
+    fn push_pty_text(&mut self, text: &str) {
+        for line in text.replace("\r", "").split('\n') {
+            self.lines.push(line.to_string());
+        }
+
+        if self.lines.len() > 300 {
+            self.lines.drain(0..self.lines.len() - 300);
+        }
+    }
+
+    fn push_line(&mut self, line: &str) {
+        self.lines.push(line.to_string());
+    }
+
+    fn render(&self, mode: &Mode, command_buffer: &str) {
+        use std::io::{stdout, Write};
+
+        print!("\x1B[2J\x1B[1;1H");
+
+        for line in &self.lines {
+            println!("{}", line);
+        }
+
+        if let Mode::Command = mode {
+            print!("\n[Terrek] > {}", command_buffer);
+        }
+
+        stdout().flush().ok();
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     enable_raw_mode()?;
-
-    // Ensure raw mode always disabled
     let _cleanup = scopeguard::guard((), |_| {
         disable_raw_mode().ok();
     });
@@ -30,13 +68,13 @@ fn main() -> anyhow::Result<()> {
     let db_tx: Sender<DbEvent> = start_db_worker();
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    let mut current_shell_input = String::new();
+    let mut screen = Screen::new();
     let mut current_output = String::new();
 
     let mut mode = Mode::Shell;
     let mut command_buffer = String::new();
 
-    // PTY setup
+    // === PTY SETUP ===
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: 24,
@@ -45,7 +83,8 @@ fn main() -> anyhow::Result<()> {
         pixel_height: 0,
     })?;
 
-    let cmd = CommandBuilder::new("/bin/bash");
+    let shell = std::env::var("SHELL").unwrap_or("/bin/bash".to_string());
+    let cmd = CommandBuilder::new(shell);
     let _child = pair.slave.spawn_command(cmd)?;
 
     let mut reader = pair.master.try_clone_reader()?;
@@ -53,7 +92,6 @@ fn main() -> anyhow::Result<()> {
 
     let (out_tx, out_rx) = channel::<String>();
 
-    // Thread to read PTY output
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
         loop {
@@ -68,34 +106,35 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    // MAIN LOOP
+    // === MAIN LOOP ===
     loop {
-        // Drain PTY output
+        // Collect PTY output into screen buffer
         while let Ok(text) = out_rx.try_recv() {
-            print!("{}", text);
-            std::io::stdout().flush().ok();
+            screen.push_pty_text(&text);
             current_output.push_str(&text);
         }
 
-        // Read keyboard
+        // Render once
+        screen.render(&mode, &command_buffer);
+
+        // Input handling
         if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
             match code {
+                // Enter Terrek mode
                 KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
                     mode = Mode::Command;
                     command_buffer.clear();
-                    println!("\n[Terrek] > ");
                 }
 
                 KeyCode::Char(c) => match mode {
+                    // Shell = pure passthrough
                     Mode::Shell => {
-                        current_shell_input.push(c);
                         writer.write_all(&[c as u8])?;
                         writer.flush()?;
                     }
+                    // Command mode = local buffer
                     Mode::Command => {
                         command_buffer.push(c);
-                        print!("{}", c);
-                        std::io::stdout().flush().ok();
                     }
                 },
 
@@ -106,63 +145,49 @@ fn main() -> anyhow::Result<()> {
 
                         db_tx.send(DbEvent::StoreCommand {
                             session_id: session_id.clone(),
-                            command: current_shell_input.clone(),
+                            command: "[shell command]".to_string(),
                             output: current_output.clone(),
                             timestamp: chrono::Local::now().timestamp(),
                         })?;
 
-                        current_shell_input.clear();
                         current_output.clear();
                     }
 
                     Mode::Command => {
-                        println!();
-
                         let action = handle_command(
                             command_buffer.trim_start_matches("terrek ").trim(),
                         )?;
 
-                        command_buffer.clear();
-
-                        if let TerrekAction::ExitToShell = action {
-                            mode = Mode::Shell;
-                            println!("[Back to Shell]");
-                        } else {
-                            print!("[Terrek] > ");
-                            std::io::stdout().flush().ok();
+                        match action {
+                            TerrekAction::ExitToShell => {
+                                mode = Mode::Shell;
+                            }
+                            TerrekAction::Output(text) => {
+                                screen.push_line(&format!("[Terrek] {}", text));
+                            }
                         }
+
+                        command_buffer.clear();
                     }
                 },
 
                 KeyCode::Backspace => match mode {
                     Mode::Shell => {
-                        if !current_shell_input.is_empty() {
-                            current_shell_input.pop();
-                            writer.write_all(b"\x7f")?;
-                            writer.flush()?;
-                        }
+                        writer.write_all(b"\x7f")?;
+                        writer.flush()?;
                     }
                     Mode::Command => {
-                        if !command_buffer.is_empty() {
-                            command_buffer.pop();
-                            print!("\x08 \x08");
-                            std::io::stdout().flush().ok();
-                        }
+                        command_buffer.pop();
                     }
                 },
 
                 KeyCode::Esc => match mode {
-                    Mode::Command => {
-                        mode = Mode::Shell;
-                        println!("\n[Back to Shell]");
-                    }
-                    Mode::Shell => break,
+                    Mode::Command => mode = Mode::Shell,
+                    Mode::Shell => break Ok(()),
                 },
 
                 _ => {}
             }
         }
     }
-
-    Ok(())
 }
