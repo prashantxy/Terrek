@@ -4,80 +4,97 @@ use chrono::{Local, TimeZone};
 use crate::db::history::{get_history, search_history};
 
 pub enum TerrekAction {
-    Continue,
     ExitToShell,
+    Output(String),
 }
 
 pub fn handle_command(cmd: &str) -> Result<TerrekAction> {
     let parts: Vec<&str> = cmd.trim().split_whitespace().collect();
 
     if parts.is_empty() {
-        return Ok(TerrekAction::Continue);
+        return Ok(TerrekAction::Output(String::new()));
     }
 
-    match parts[0] {
+    let output = match parts[0] {
         "hello" => {
-            println!("\nHello from Terrek!");
+            "Hello from Terrek!".to_string()
         }
 
         "time" => {
-            println!("\nCurrent time: {}", Local::now());
+            format!("Current time: {}", Local::now())
         }
 
         "clear" => {
-            print!("\x1B[2J\x1B[1;1H");
+            // special signal to main to clear screen buffer
+            "__CLEAR__".to_string()
         }
 
         "history" => {
             let history = get_history(20)?;
+            let mut lines = Vec::new();
+
             for (cmd, _, ts) in history {
                 let time = Local.timestamp_opt(ts, 0).unwrap();
-                println!("[{}] {}", time.format("%H:%M:%S"), cmd);
+                lines.push(format!(
+                    "[{}] {}",
+                    time.format("%H:%M:%S"),
+                    cmd
+                ));
             }
+
+            lines.join("\n")
         }
 
         "last" => {
             let history = get_history(1)?;
             if let Some((cmd, output, ts)) = history.first() {
                 let time = Local.timestamp_opt(*ts, 0).unwrap();
-                println!("\nLast Command [{}]:\n{}\n", time, cmd);
-                println!("Output:\n{}\n", output);
+
+                format!(
+                    "Last Command [{}]:\n{}\n\nOutput:\n{}",
+                    time, cmd, output
+                )
+            } else {
+                "No history found".to_string()
             }
         }
 
         "search" => {
             if parts.len() < 2 {
-                println!("Usage: terrek search <keyword>");
+                "Usage: terrek search <keyword>".to_string()
             } else {
                 let results = search_history(parts[1])?;
+                let mut lines = Vec::new();
+
                 for (cmd, _, ts) in results {
                     let time = Local.timestamp_opt(ts, 0).unwrap();
-                    println!("[{}] {}", time.format("%H:%M:%S"), cmd);
+                    lines.push(format!(
+                        "[{}] {}",
+                        time.format("%H:%M:%S"),
+                        cmd
+                    ));
                 }
+
+                lines.join("\n")
             }
         }
 
         "help" => {
-            println!(
-                r#"
-Terrek Commands:
+            r#"Terrek Commands:
   terrek hello
   terrek time
   terrek clear
   terrek history
   terrek last
   terrek search <keyword>
-  terrek exit
-"#
-            );
+  terrek exit"#
+                .to_string()
         }
 
         "exit" => return Ok(TerrekAction::ExitToShell),
 
-        _ => {
-            println!("Unknown Terrek command");
-        }
-    }
+        _ => "Unknown Terrek command".to_string(),
+    };
 
-    Ok(TerrekAction::Continue)
+    Ok(TerrekAction::Output(output))
 }

@@ -19,44 +19,14 @@ enum Mode {
     Command,
 }
 
-struct Screen {
-    lines: Vec<String>,
+fn draw_prompt(buf: &str) {
+    print!("\r\x1B[K[Terrek] > {}", buf);
+    std::io::stdout().flush().ok();
 }
 
-impl Screen {
-    fn new() -> Self {
-        Self { lines: Vec::new() }
-    }
-
-    fn push_pty_text(&mut self, text: &str) {
-        for line in text.replace("\r", "").split('\n') {
-            self.lines.push(line.to_string());
-        }
-
-        if self.lines.len() > 300 {
-            self.lines.drain(0..self.lines.len() - 300);
-        }
-    }
-
-    fn push_line(&mut self, line: &str) {
-        self.lines.push(line.to_string());
-    }
-
-    fn render(&self, mode: &Mode, command_buffer: &str) {
-        use std::io::{stdout, Write};
-
-        print!("\x1B[2J\x1B[1;1H");
-
-        for line in &self.lines {
-            println!("{}", line);
-        }
-
-        if let Mode::Command = mode {
-            print!("\n[Terrek] > {}", command_buffer);
-        }
-
-        stdout().flush().ok();
-    }
+fn clear_prompt() {
+    print!("\r\x1B[K");
+    std::io::stdout().flush().ok();
 }
 
 fn main() -> anyhow::Result<()> {
@@ -68,9 +38,7 @@ fn main() -> anyhow::Result<()> {
     let db_tx: Sender<DbEvent> = start_db_worker();
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    let mut screen = Screen::new();
     let mut current_output = String::new();
-
     let mut mode = Mode::Shell;
     let mut command_buffer = String::new();
 
@@ -92,6 +60,7 @@ fn main() -> anyhow::Result<()> {
 
     let (out_tx, out_rx) = channel::<String>();
 
+    // === PTY reader thread (NO PRINTING HERE) ===
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
         loop {
@@ -108,33 +77,42 @@ fn main() -> anyhow::Result<()> {
 
     // === MAIN LOOP ===
     loop {
-        // Collect PTY output into screen buffer
+        // Print PTY output (only place that prints shell output)
         while let Ok(text) = out_rx.try_recv() {
-            screen.push_pty_text(&text);
+            print!("{}", text);
+            std::io::stdout().flush().ok();
             current_output.push_str(&text);
         }
 
-        // Render once
-        screen.render(&mode, &command_buffer);
-
-        // Input handling
         if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
             match code {
                 // Enter Terrek mode
                 KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
                     mode = Mode::Command;
                     command_buffer.clear();
+                    println!();
+                    draw_prompt("");
                 }
 
                 KeyCode::Char(c) => match mode {
-                    // Shell = pure passthrough
                     Mode::Shell => {
                         writer.write_all(&[c as u8])?;
                         writer.flush()?;
                     }
-                    // Command mode = local buffer
                     Mode::Command => {
                         command_buffer.push(c);
+                        draw_prompt(&command_buffer);
+                    }
+                },
+
+                KeyCode::Backspace => match mode {
+                    Mode::Shell => {
+                        writer.write_all(b"\x7f")?;
+                        writer.flush()?;
+                    }
+                    Mode::Command => {
+                        command_buffer.pop();
+                        draw_prompt(&command_buffer);
                     }
                 },
 
@@ -154,16 +132,20 @@ fn main() -> anyhow::Result<()> {
                     }
 
                     Mode::Command => {
+                        println!();
+
                         let action = handle_command(
                             command_buffer.trim_start_matches("terrek ").trim(),
                         )?;
 
                         match action {
                             TerrekAction::ExitToShell => {
+                                clear_prompt();
                                 mode = Mode::Shell;
                             }
                             TerrekAction::Output(text) => {
-                                screen.push_line(&format!("[Terrek] {}", text));
+                                println!("[Terrek] {}", text);
+                                draw_prompt("");
                             }
                         }
 
@@ -171,18 +153,11 @@ fn main() -> anyhow::Result<()> {
                     }
                 },
 
-                KeyCode::Backspace => match mode {
-                    Mode::Shell => {
-                        writer.write_all(b"\x7f")?;
-                        writer.flush()?;
-                    }
-                    Mode::Command => {
-                        command_buffer.pop();
-                    }
-                },
-
                 KeyCode::Esc => match mode {
-                    Mode::Command => mode = Mode::Shell,
+                    Mode::Command => {
+                        clear_prompt();
+                        mode = Mode::Shell;
+                    }
                     Mode::Shell => break Ok(()),
                 },
 
