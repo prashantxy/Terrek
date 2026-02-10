@@ -60,7 +60,7 @@ fn main() -> anyhow::Result<()> {
 
     let (out_tx, out_rx) = channel::<String>();
 
-    // === PTY reader thread (NO PRINTING HERE) ===
+    // PTY reader thread (no printing)
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
         loop {
@@ -77,7 +77,7 @@ fn main() -> anyhow::Result<()> {
 
     // === MAIN LOOP ===
     loop {
-        // Print PTY output (only place that prints shell output)
+        // Print shell output
         while let Ok(text) = out_rx.try_recv() {
             print!("{}", text);
             std::io::stdout().flush().ok();
@@ -86,7 +86,6 @@ fn main() -> anyhow::Result<()> {
 
         if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
             match code {
-                // Enter Terrek mode
                 KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
                     mode = Mode::Command;
                     command_buffer.clear();
