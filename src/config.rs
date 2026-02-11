@@ -1,28 +1,33 @@
-use serde::{Serealize,Deserealize};
-use std::{fs, path:PathBuff};
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
 
-pub Struct Ai-configs{
-    pub Provider : String,
-    pub Api_key : String,
+#[derive(Serialize, Deserialize)]
+pub struct Config {
+    pub gemini_api_key: String,
 }
 
-
-fn config_path()->PathBuf{
-    let name = dirs::home_dir().unwrap();
-    home.join(".terrek").join("config.toml");
+fn config_path() -> PathBuf {
+    dirs::home_dir().unwrap().join(".terrek/config.json")
 }
 
-pub fn save_config(cfg: &AiConfig) -> anyhow::Result<()> {
+pub fn load_config() -> Option<Config> {
     let path = config_path();
-    fs::create_dir_all(path.parent().unwrap())?;
-    let data = toml::to_string(cfg)?;
-    fs::write(path, data)?;
+    let data = fs::read_to_string(path).ok()?;
+    serde_json::from_str(&data).ok()
+}
+
+pub fn save_config(key: &str) -> anyhow::Result<()> {
+    let path = config_path();
+
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+
+    let cfg = Config {
+        gemini_api_key: key.to_string(),
+    };
+
+    fs::write(path, serde_json::to_string_pretty(&cfg)?)?;
     Ok(())
-}
-
-pub fn load_config() -> Option<AiConfig> {
-    let path = config_path();
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|d| toml::from_str(&d).ok())
 }
