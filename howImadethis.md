@@ -54,3 +54,6 @@ Ctrl+X → type → Enter → stay in Terrek
 
                   let's do this very properly 
 PTY output → screen_buffer → render() → terminal
+
+
+now i would want to make a ai-based suggestion terminal and for that purpose the architecture i am thinking of is like user will use terrek ai-setup command -> they will have some option of setting api key from some providers -> once they set it they will have whole context of their setup
