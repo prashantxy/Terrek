@@ -1,21 +1,44 @@
 use std::io::{self, Write};
-use crate::config::{save_config, Config};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
+use scopeguard::defer;
+
+use crate::config::{save_config, Config, config_exists};
 
 pub fn setup() -> anyhow::Result<()> {
-    println!("Paste your Gemini API key:");
+    if config_exists() {
+        println!("\n[Terrek] AI already configured.");
+        return Ok(());
+    }
+
+    disable_raw_mode()?;
+    defer! { let _ = enable_raw_mode(); }
+
+    println!("\nPaste your Gemini API key:");
     print!("> ");
     io::stdout().flush()?;
 
     let mut key = String::new();
     io::stdin().read_line(&mut key)?;
 
+    let key = key
+        .replace("\u{1b}[200~", "")
+        .replace("\u{1b}[201~", "")
+        .trim()
+        .to_string();
+
     let cfg = Config {
         provider: "gemini".to_string(),
-        gemini_api_key: key.trim().to_string(),
+        gemini_api_key: key,
     };
 
     save_config(&cfg)?;
 
-    println!("Gemini configured successfully.");
+   
+    if config_exists() {
+        println!("\n[Terrek] Configuration successful. config.json created.\n");
+    } else {
+        println!("\n[Terrek] ERROR: config.json not created.\n");
+    }
+
     Ok(())
 }
