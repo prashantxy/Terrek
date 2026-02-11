@@ -10,7 +10,7 @@ use crossterm::{
 
 mod db;
 mod commands;
-
+mod config;
 use db::worker::{start_db_worker, DbEvent};
 use commands::{handle_command, TerrekAction};
 
@@ -18,7 +18,10 @@ enum Mode {
     Shell,
     Command,
 }
-
+mod ai {
+    pub mod gemini;
+    pub mod setup;
+}
 fn draw_prompt(buf: &str) {
     print!("\r\x1B[K[Terrek] > {}", buf);
     std::io::stdout().flush().ok();

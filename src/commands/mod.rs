@@ -1,5 +1,7 @@
 use anyhow::Result;
 use chrono::{Local, TimeZone};
+use crate::ai::gemini::ask_gemini;
+use crate::ai::setup::setup as ai_setup;
 
 use crate::db::history::{get_history, search_history};
 
@@ -79,11 +81,23 @@ pub fn handle_command(cmd: &str) -> Result<TerrekAction> {
             }
         }
 
-        "ai"=>{
-          if parts.len()>=2 && parts[1]=="setup"{
-            return Ok(TerrekAction::Output(Setup_ai()?));
-          }
-        }
+        "ai" => {
+    if parts.len() < 2 {
+        return Ok(TerrekAction::Output(
+            "Usage:\n  terrek ai setup\n  terrek ai <your question>".to_string()
+        ));
+    }
+
+    if parts[1] == "setup" {
+        ai_setup()?;
+        return Ok(TerrekAction::Output("Gemini setup complete".into()));
+    }
+
+    let prompt = parts[1..].join(" ");
+    let reply = ask_gemini(&prompt)?;
+    return Ok(TerrekAction::Output(reply));
+}
+
 
         "help" => {
             r#"Terrek Commands:
