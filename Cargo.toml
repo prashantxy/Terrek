@@ -20,4 +20,6 @@ uuid = { version = "1.20.0", features = ["v4"] }
 rusqlite = "0.38.0"
 scopeguard = "1.2.0"
 serde = "1.0.228"
+toml = "0.9.12"
+dirs = "6.0.0"
 
