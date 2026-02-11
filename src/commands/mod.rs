@@ -79,6 +79,12 @@ pub fn handle_command(cmd: &str) -> Result<TerrekAction> {
             }
         }
 
+        "ai"=>{
+          if parts.len()>=2 && parts[1]=="setup"{
+            return Ok(TerrekAction::Output(Setup_ai()?));
+          }
+        }
+
         "help" => {
             r#"Terrek Commands:
   terrek hello
