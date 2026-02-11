@@ -7,4 +7,8 @@ pub Struct Ai-configs{
 }
 
 
-fn configpath()->
+fn config_path()->PathBuf{
+    let name = dirs::home_dir().unwrap();
+    home.join("terrek").join("config.toml");
+    
+}
