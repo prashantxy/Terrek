@@ -92,6 +92,7 @@ pub fn handle_command(cmd: &str) -> Result<TerrekAction> {
   terrek clear
   terrek history
   terrek last
+  terrek ai
   terrek search <keyword>
   terrek exit"#
                 .to_string()
