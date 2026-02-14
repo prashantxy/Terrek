@@ -2,7 +2,7 @@ use anyhow::Result;
 use chrono::{Local, TimeZone};
 use crate::ai::gemini::ask_gemini;
 use crate::ai::setup::setup as ai_setup;
-
+use crate ::config::delete_config;
 use crate::db::history::{get_history, search_history};
 
 pub enum TerrekAction {
