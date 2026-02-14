@@ -129,7 +129,11 @@ pub fn handle_command(cmd: &str) -> Result<TerrekAction> {
 
         _ => {
             let prompt = parts[1..].join(" ");
-            let reply = ask_gemini(&prompt)?;
+           let reply = match ask_gemini(&prompt) {
+            Ok(r) => r,
+            Err(e) => return Ok(TerrekAction::Output(e.to_string())),
+            };
+            return Ok(TerrekAction::Output(reply));
             return Ok(TerrekAction::Output(reply));
         }
     }
