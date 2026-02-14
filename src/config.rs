@@ -30,3 +30,13 @@ pub fn load_config() -> Option<Config> {
 pub fn config_exists() -> bool {
     config_path().exists()
 }
+
+pub fn delete_config() -> anyhow::Result<()> {
+    let path = config_path();
+
+    if path.exists() {
+        std::fs::remove_file(path)?;
+    }
+
+    Ok(())
+}
