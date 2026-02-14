@@ -19,13 +19,10 @@ fn get_key() -> Result<String>{
 pub fn ask_gemini(prompt: &str) -> Result<String> {
     let key = get_key()?;
 
-   let url = format!(
-   ,
-    key
-);
-
-
-
+    let url = format!(
+        "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={}",
+        key
+    );
 
     let body = json!({
         "contents": [{
@@ -34,25 +31,16 @@ pub fn ask_gemini(prompt: &str) -> Result<String> {
     });
 
     let client = Client::new();
-    let response = client.post(&url).json(&body).send()?;
 
-    if !response.status().is_success() {
-        let err_text = response.text()?;
-        return Err(anyhow!("Gemini API error: {}", err_text));
-    }
+    let response = client.post(&url)
+        .json(&body)
+        .send()?;
 
     let res: serde_json::Value = response.json()?;
 
-    // Handle missing candidates properly
-    let text = res
-        .get("candidates")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("content"))
-        .and_then(|c| c.get("parts"))
-        .and_then(|p| p.get(0))
-        .and_then(|p| p.get("text"))
-        .and_then(|t| t.as_str())
-        .ok_or_else(|| anyhow!("Invalid Gemini response format: {}", res))?;
+    let text = res["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .unwrap_or("No response");
 
     Ok(text.to_string())
 }
