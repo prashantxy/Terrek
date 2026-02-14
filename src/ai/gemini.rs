@@ -38,22 +38,11 @@ pub fn ask_gemini(prompt: &str) -> Result<String> {
 
     let res: serde_json::Value = response.json()?;
 
-println!("DEBUG RESPONSE:\n{}", serde_json::to_string_pretty(&res)?);
 
-    println!("FULL RESPONSE:\n{}", serde_json::to_string_pretty(&res)?);
 
-if let Some(text) = res
-    .get("candidates")
-    .and_then(|c| c.get(0))
-    .and_then(|c| c.get("content"))
-    .and_then(|c| c.get("parts"))
-    .and_then(|p| p.get(0))
-    .and_then(|p| p.get("text"))
-    .and_then(|t| t.as_str())
-{
+    let text = res["candidates"][0]["content"]["parts"][0]["text"]
+        .as_str()
+        .unwrap_or("No response");
+
     Ok(text.to_string())
-} else {
-    Err(anyhow!("Gemini returned unexpected response structure"))
-}
-
 }
