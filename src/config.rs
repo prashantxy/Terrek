@@ -27,3 +27,6 @@ pub fn load_config() -> Option<Config> {
     let data = fs::read_to_string(path).ok()?;
     serde_json::from_str(&data).ok()
 }
+pub fn config_exists() -> bool {
+    config_path().exists()
+}
