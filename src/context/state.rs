@@ -29,6 +29,16 @@ impl ContextState{
        }
        self.last_commands.push(commands);
     }
+    pub fn update_exit_code(&mut self,code : i32,stderr: Option<String>){
+        Self.update_exit_code=Some(code);
+
+        if code != 0 {
+            self.last_error = stderr;
+        }
+        else{
+            self.last_error = None;
+        }
+    }
 }
 
 
