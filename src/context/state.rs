@@ -23,8 +23,8 @@ impl ContextState{
          }
     }
 
-    pub fn add_command(&mut self)->{
-
+    pub fn add_command(&mut self,command:String)->{
+       
     }
 }
 
