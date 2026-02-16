@@ -39,6 +39,10 @@ impl ContextState{
             self.last_error = None;
         }
     }
+    pub fn set_project_root(&mut self, path:Pathbuf){
+        self.project_root = Some(path);
+    }
+    
 }
 
 
