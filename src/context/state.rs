@@ -7,7 +7,9 @@ pub struct ContextState{
     pub last_command : Option<String>,
     pub last_error : Option<String>,
     pub last_exit_command : Option<i32>,
-    pub last
+    pub active_file : Option<Pathbuf>,
 }
+
+
 
 
