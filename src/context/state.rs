@@ -24,7 +24,10 @@ impl ContextState{
     }
 
     pub fn add_command(&mut self,command:String)->{
-       
+       if self.last_commands.len >= 5 {
+        self.last_commands.remove(0);
+       }
+       self.last_commands.push(commands);
     }
 }
 
