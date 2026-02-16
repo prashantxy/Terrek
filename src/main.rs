@@ -157,7 +157,7 @@ fn main() -> anyhow::Result<()> {
                             let exit_part = &current_output[pos + 15..];
                             if let Some(code_str) = exit_part.lines().next() {
                                 if let Ok(code) = code_str.trim().parse::<i32>() {
-                                    context.(
+                                    context.update_exit_code(
                                         code,
                                         if code != 0 {
                                             Some(current_output.clone())
