@@ -40,8 +40,12 @@ impl ContextState{
         }
     }
     pub fn set_project_root(&mut self, path:Pathbuf){
-        self.project_root = Some(path);
+        self.project_root = Some(path); 
     }
+    pub fn set_git_branch(&mut self ,Option<String>){
+        self.set_git_branch = Some(String);
+    }
+
     
 }
 
