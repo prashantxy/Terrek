@@ -43,10 +43,20 @@ impl ContextState{
         self.project_root = Some(path); 
     }
     pub fn set_git_branch(&mut self ,Option<String>){
-        self.set_git_branch = Some(String);
+        self.set_git_branch = branch;
     }
 
-    
+pub fn debug_print(&self) {
+        println!("----------------------------");
+        println!("TERREK CONTEXT DEBUG");
+        println!("Project Root: {:?}", self.project_root);
+        println!("Git Branch: {:?}", self.git_branch);
+        println!("Last Commands: {:?}", self.last_commands);
+        println!("Last Exit Code: {:?}", self.last_exit_code);
+        println!("Last Error: {:?}", self.last_error);
+        println!("----------------------------");
+    }
+
 }
 
 
