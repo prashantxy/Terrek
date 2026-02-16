@@ -1,17 +1,15 @@
-use::std::process::Command;
+use std::process::Command;
 
-pub fn get_git_branch()-> Option<String>{
+pub fn get_git_branch() -> Option<String> {
     let output = Command::new("git")
-    .args(["rev-parse","--abbreve-ref","HEAD"])
-    .output()
-    .ok()?;
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+        .ok()?;
 
-
-    if output_status.success(){
+    if output.status.success() {
         let branch = String::from_utf8_lossy(&output.stdout);
-        Some(branch.trim().tostring());
-    }
-    else{
-        None;
+        Some(branch.trim().to_string())
+    } else {
+        None
     }
 }

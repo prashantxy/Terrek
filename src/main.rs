@@ -11,17 +11,20 @@ use crossterm::{
 mod db;
 mod commands;
 mod config;
+mod context;
+mod ai;
 use db::worker::{start_db_worker, DbEvent};
 use commands::{handle_command, TerrekAction};
+
+use context::state::ContextState;
+use context::git::get_git_branch;
+use context::context_builder::build_context;
 
 enum Mode {
     Shell,
     Command,
 }
-mod ai {
-    pub mod gemini;
-    pub mod setup;
-}
+
 fn draw_prompt(buf: &str) {
     print!("\r\x1B[K[Terrek] > {}", buf);
     std::io::stdout().flush().ok();
@@ -41,11 +44,21 @@ fn main() -> anyhow::Result<()> {
     let db_tx: Sender<DbEvent> = start_db_worker();
     let session_id = uuid::Uuid::new_v4().to_string();
 
+    
+    let mut context = ContextState::new();
+
+    if let Ok(path) = std::env::current_dir() {
+        context.set_project_root(path);
+    }
+
+    context.set_git_branch(get_git_branch());
+
     let mut current_output = String::new();
     let mut mode = Mode::Shell;
     let mut command_buffer = String::new();
+    let mut shell_input_buffer = String::new();
 
-    // === PTY SETUP ===
+   
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: 24,
@@ -63,7 +76,7 @@ fn main() -> anyhow::Result<()> {
 
     let (out_tx, out_rx) = channel::<String>();
 
-    // PTY reader thread (no printing)
+    
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
         loop {
@@ -78,9 +91,8 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    // === MAIN LOOP ===
+   
     loop {
-        // Print shell output
         while let Ok(text) = out_rx.try_recv() {
             print!("{}", text);
             std::io::stdout().flush().ok();
@@ -89,6 +101,8 @@ fn main() -> anyhow::Result<()> {
 
         if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
             match code {
+
+                // Switch to Terrek command mode
                 KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
                     mode = Mode::Command;
                     command_buffer.clear();
@@ -98,6 +112,7 @@ fn main() -> anyhow::Result<()> {
 
                 KeyCode::Char(c) => match mode {
                     Mode::Shell => {
+                        shell_input_buffer.push(c);
                         writer.write_all(&[c as u8])?;
                         writer.flush()?;
                     }
@@ -109,6 +124,7 @@ fn main() -> anyhow::Result<()> {
 
                 KeyCode::Backspace => match mode {
                     Mode::Shell => {
+                        shell_input_buffer.pop();
                         writer.write_all(b"\x7f")?;
                         writer.flush()?;
                     }
@@ -120,15 +136,60 @@ fn main() -> anyhow::Result<()> {
 
                 KeyCode::Enter => match mode {
                     Mode::Shell => {
-                        writer.write_all(b"\r")?;
+                        // Inject exit code marker
+                        let full_command = format!(
+                            "{}; echo __TERREK_EXIT__$?\n",
+                            shell_input_buffer
+                        );
+
+                        writer.write_all(full_command.as_bytes())?;
                         writer.flush()?;
+
+                        context.add_command(shell_input_buffer.clone());
+
+                        shell_input_buffer.clear();
+
+                        // Wait briefly for output
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+
+                        // Parse exit code
+                        if let Some(pos) = current_output.find("__TERREK_EXIT__") {
+                            let exit_part = &current_output[pos + 15..];
+                            if let Some(code_str) = exit_part.lines().next() {
+                                if let Ok(code) = code_str.trim().parse::<i32>() {
+                                    context.(
+                                        code,
+                                        if code != 0 {
+                                            Some(current_output.clone())
+                                        } else {
+                                            None
+                                        },
+                                    );
+                                }
+                            }
+                        }
+
+                        // Refresh git branch after command 
+                        context.set_git_branch(get_git_branch());
+
+                        context.debug_print();
 
                         db_tx.send(DbEvent::StoreCommand {
                             session_id: session_id.clone(),
-                            command: "[shell command]".to_string(),
+                            command: context
+                                .last_commands
+                                .last()
+                                .unwrap_or(&"[unknown]".to_string())
+                                .to_string(),
                             output: current_output.clone(),
                             timestamp: chrono::Local::now().timestamp(),
                         })?;
+
+                        // AI Hook on error
+                        if context.last_exit_code.unwrap_or(0) != 0 {
+                            println!("\n[Terrek AI] Detected failure. Context ready.");
+                            println!("{}", build_context(&context));
+                        }
 
                         current_output.clear();
                     }

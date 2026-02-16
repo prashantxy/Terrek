@@ -2,7 +2,6 @@ use anyhow::Result;
 use chrono::{Local, TimeZone};
 use crate::ai::gemini::ask_gemini;
 use crate::ai::setup::setup as ai_setup;
-use crate ::config::delete_config;
 use crate::db::history::{get_history, search_history};
 
 pub enum TerrekAction {
@@ -131,9 +130,11 @@ pub fn handle_command(cmd: &str) -> Result<TerrekAction> {
             let prompt = parts[1..].join(" ");
            let reply = match ask_gemini(&prompt) {
             Ok(r) => r,
-            Err(e) => return Ok(TerrekAction::Output(e.to_string())),
+           Err(e) => {
+           let err_msg = format!("{}", e);
+          return Ok(TerrekAction::Output(err_msg));
+           } 
             };
-            return Ok(TerrekAction::Output(reply));
             return Ok(TerrekAction::Output(reply));
         }
     }
