@@ -11,7 +11,7 @@ impl provider{
             "claude" => Self::Claude,
             "gemini" => Self:: Gemini,
             "ollama" => Self::Ollama,
-            _Self::OpanAI
+            _Self::OpenAI
         }
     }
 }
