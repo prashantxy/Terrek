@@ -13,6 +13,7 @@ mod commands;
 mod config;
 mod context;
 mod ai;
+
 use db::worker::{start_db_worker, DbEvent};
 use commands::{handle_command, TerrekAction};
 
@@ -26,7 +27,7 @@ enum Mode {
 }
 
 fn draw_prompt(buf: &str) {
-    print!("\r\x1B[K[Terrek] > {}", buf);
+    print!("\r\x1B[K[Terrek Command] > {}", buf);
     std::io::stdout().flush().ok();
 }
 
@@ -44,7 +45,6 @@ fn main() -> anyhow::Result<()> {
     let db_tx: Sender<DbEvent> = start_db_worker();
     let session_id = uuid::Uuid::new_v4().to_string();
 
-    
     let mut context = ContextState::new();
 
     if let Ok(path) = std::env::current_dir() {
@@ -53,12 +53,6 @@ fn main() -> anyhow::Result<()> {
 
     context.set_git_branch(get_git_branch());
 
-    let mut current_output = String::new();
-    let mut mode = Mode::Shell;
-    let mut command_buffer = String::new();
-    let mut shell_input_buffer = String::new();
-
-   
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: 24,
@@ -68,7 +62,8 @@ fn main() -> anyhow::Result<()> {
     })?;
 
     let shell = std::env::var("SHELL").unwrap_or("/bin/bash".to_string());
-    let cmd = CommandBuilder::new(shell);
+    let mut cmd = CommandBuilder::new(shell);
+    cmd.env("PS1", "[Terrek-Shell] \\w > ");
     let _child = pair.slave.spawn_command(cmd)?;
 
     let mut reader = pair.master.try_clone_reader()?;
@@ -76,7 +71,6 @@ fn main() -> anyhow::Result<()> {
 
     let (out_tx, out_rx) = channel::<String>();
 
-    
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
         loop {
@@ -91,7 +85,11 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-   
+    let mut current_output = String::new();
+    let mut mode = Mode::Shell;
+    let mut command_buffer = String::new();
+    let mut shell_input_buffer = String::new();
+
     loop {
         while let Ok(text) = out_rx.try_recv() {
             print!("{}", text);
@@ -101,12 +99,10 @@ fn main() -> anyhow::Result<()> {
 
         if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
             match code {
-
-                // Switch to Terrek command mode
                 KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
                     mode = Mode::Command;
                     command_buffer.clear();
-                    println!();
+                    println!("\n-- Terrek Command Mode --");
                     draw_prompt("");
                 }
 
@@ -136,7 +132,8 @@ fn main() -> anyhow::Result<()> {
 
                 KeyCode::Enter => match mode {
                     Mode::Shell => {
-                        // Inject exit code marker
+                        current_output.clear();
+
                         let full_command = format!(
                             "{}; echo __TERREK_EXIT__$?\n",
                             shell_input_buffer
@@ -146,31 +143,38 @@ fn main() -> anyhow::Result<()> {
                         writer.flush()?;
 
                         context.add_command(shell_input_buffer.clone());
-
                         shell_input_buffer.clear();
 
-                        // Wait briefly for output
-                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        std::thread::sleep(std::time::Duration::from_millis(120));
 
-                        // Parse exit code
-                        if let Some(pos) = current_output.find("__TERREK_EXIT__") {
-                            let exit_part = &current_output[pos + 15..];
+                        if let Some(pos) = current_output.rfind("__TERREK_EXIT__") {
+                            let exit_part =
+                                &current_output[pos + "__TERREK_EXIT__".len()..];
+
                             if let Some(code_str) = exit_part.lines().next() {
                                 if let Ok(code) = code_str.trim().parse::<i32>() {
+                                    let clean_output =
+                                        current_output[..pos].to_string();
+
                                     context.update_exit_code(
                                         code,
                                         if code != 0 {
-                                            Some(current_output.clone())
+                                            Some(clean_output.clone())
                                         } else {
                                             None
                                         },
                                     );
+
+                                    current_output = clean_output;
                                 }
                             }
                         }
 
-                        // Refresh git branch after command 
                         context.set_git_branch(get_git_branch());
+
+                        if let Ok(path) = std::env::current_dir() {
+                            context.set_project_root(path);
+                        }
 
                         context.debug_print();
 
@@ -185,10 +189,10 @@ fn main() -> anyhow::Result<()> {
                             timestamp: chrono::Local::now().timestamp(),
                         })?;
 
-                        // AI Hook on error
                         if context.last_exit_code.unwrap_or(0) != 0 {
-                            println!("\n[Terrek AI] Detected failure. Context ready.");
-                            println!("{}", build_context(&context));
+                            println!("\n[Terrek AI] Failure detected.\n");
+                            let prompt = build_context(&context);
+                            println!("{}", prompt);
                         }
 
                         current_output.clear();
