@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-REPO="prashantdubey/terrek"
+REPO="prashantxy/Terrek"
 BINARY="terrek"
 
 OS="$(uname -s)"
@@ -15,7 +15,7 @@ else
   exit 1
 fi
 
-URL="https://github.com/$REPO/releases/latest/download/$FILE"
+URL="https://github.com/prashantxy/Terrek/releases/latest/download/$FILE"
 
 echo "Downloading $BINARY..."
 curl -L $URL -o $BINARY
