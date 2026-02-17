@@ -3,6 +3,8 @@ use std::path::PathBuf;
 pub struct ContextState {
     pub project_root: Option<PathBuf>,
     pub git_branch: Option<String>,
+    pub String os,
+    pub String 
     pub file_tree_snapshot: Option<String>,
     pub last_commands: Vec<String>,
     pub last_error: Option<String>,
