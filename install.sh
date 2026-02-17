@@ -15,12 +15,12 @@ else
   exit 1
 fi
 
-URL="https://github.com/prashantxy/Terrek/releases/latest/download/$FILE"
+URL="https://github.com/$REPO/releases/latest/download/$FILE"
 
 echo "Downloading $BINARY..."
-curl -L $URL -o $BINARY
+curl -fL "$URL" -o "$BINARY"
 
-chmod +x $BINARY
-sudo mv $BINARY /usr/local/bin/$BINARY
+chmod +x "$BINARY"
+sudo mv "$BINARY" /usr/local/bin/$BINARY
 
 echo "Installed successfully!"
