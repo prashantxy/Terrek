@@ -2,12 +2,25 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
+    #[serde(default = "default_provider")]
     pub provider: String,
+
     pub gemini_api_key: String,
+
+    #[serde(default = "default_true")]
     pub auto_ai_on_error: bool,
 }
+
+fn default_provider() -> String {
+    "gemini".to_string()
+}
+
 
 fn config_path() -> PathBuf {
     let mut path = dirs::config_dir().expect("Cannot find config directory");
