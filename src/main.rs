@@ -44,7 +44,7 @@ fn main() -> anyhow::Result<()> {
     let session_id = Uuid::new_v4().to_string();
 
     let mut context = ContextState::new();
----------------------------
+
 
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
@@ -77,9 +77,7 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    // -----------------------------
-    // Runtime State
-    // -----------------------------
+ 
 
     let mut mode = Mode::Shell;
     let mut shell_input_buffer = String::new();
@@ -89,7 +87,7 @@ fn main() -> anyhow::Result<()> {
     println!("You are in SHELL session. Press Ctrl+T for TERREK mode.");
 
     loop {
-        // Print shell output
+        
         while let Ok(text) = out_rx.try_recv() {
             print!("{}", text);
             std::io::stdout().flush().ok();
@@ -99,9 +97,6 @@ fn main() -> anyhow::Result<()> {
         if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
             match code {
 
-                // -----------------------------
-                // Switch to TERREK Mode
-                // -----------------------------
                 KeyCode::Char('t') if modifiers.contains(KeyModifiers::CONTROL) => {
                     mode = Mode::Terrek;
                     terrek_buffer.clear();
@@ -109,9 +104,6 @@ fn main() -> anyhow::Result<()> {
                     draw_prompt("");
                 }
 
-                // -----------------------------
-                // Character Input
-                // -----------------------------
                 KeyCode::Char(c) => match mode {
                     Mode::Shell => {
                         shell_input_buffer.push(c);
@@ -124,9 +116,7 @@ fn main() -> anyhow::Result<()> {
                     }
                 },
 
-                // -----------------------------
-                // Backspace
-                // -----------------------------
+               
                 KeyCode::Backspace => match mode {
                     Mode::Shell => {
                         shell_input_buffer.pop();
@@ -139,12 +129,8 @@ fn main() -> anyhow::Result<()> {
                     }
                 },
 
-                // -----------------------------
-                // Enter Handling
-                // -----------------------------
                 KeyCode::Enter => match mode {
 
-                    // ---- SHELL MODE ----
                     Mode::Shell => {
                         current_output.clear();
 
@@ -220,9 +206,6 @@ fn main() -> anyhow::Result<()> {
                     }
                 },
 
-                // -----------------------------
-                // ESC Handling
-                // -----------------------------
                 KeyCode::Esc => match mode {
                     Mode::Terrek => {
                         clear_prompt();
