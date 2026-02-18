@@ -1,7 +1,7 @@
  use std::path::Pathbuf;
 
  pub fn build_gemini_prompt(
-    context: &TerrekContext,
+    context: &ContextState,
     user_input: &str,
 ) -> String {
 
