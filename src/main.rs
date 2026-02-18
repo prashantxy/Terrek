@@ -9,7 +9,7 @@ use crossterm::{
 };
 
 use uuid::Uuid;
-
+mod ai;
 mod db;
 mod commands;
 mod context;
