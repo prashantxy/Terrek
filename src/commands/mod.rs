@@ -3,18 +3,17 @@ use chrono::{Local, TimeZone};
 use crate::ai::gemini::ask_gemini;
 use crate::ai::setup::setup as ai_setup;
 use crate::db::history::{get_history, search_history};
+use crate::context::ContextState;
 
 pub enum TerrekAction {
-    ExitToShell,
     Output(String),
 }
-use crate::context::ContextState;
 
 pub fn handle_command(
     context: &ContextState,
     cmd: &str,
-) -> Result<TerrekAction>
- {
+) -> Result<TerrekAction> {
+
     let parts: Vec<&str> = cmd.trim().split_whitespace().collect();
 
     if parts.is_empty() {
@@ -22,6 +21,7 @@ pub fn handle_command(
     }
 
     let output = match parts[0] {
+
         "hello" => {
             "Hello from Terrek!".to_string()
         }
@@ -31,7 +31,6 @@ pub fn handle_command(
         }
 
         "clear" => {
-            // special signal to main to clear screen buffer
             "__CLEAR__".to_string()
         }
 
@@ -86,64 +85,65 @@ pub fn handle_command(
         }
 
         "ai" => {
-    if parts.len() < 2 {
-        return Ok(TerrekAction::Output(
-            "Usage:
+            if parts.len() < 2 {
+                return Ok(TerrekAction::Output(
+                    "Usage:
   terrek ai setup
   terrek ai change-key
   terrek ai show-config
   terrek ai remove-key
   terrek ai <your question>"
-                .to_string(),
-        ));
-    }
-
-    match parts[1] {
-        "setup" | "change-key" => {
-            ai_setup()?;
-            return Ok(TerrekAction::Output(
-                "Gemini API key saved successfully.".into(),
-            ));
-        }
-
-        "show-config" => {
-            use crate::config::load_config;
-
-            if let Some(cfg) = load_config() {
-                let preview = &cfg.gemini_api_key[..6.min(cfg.gemini_api_key.len())];
-                return Ok(TerrekAction::Output(format!(
-                    "Current key starts with: {}****",
-                    preview
-                )));
-            } else {
-                return Ok(TerrekAction::Output(
-                    "No API key configured.".into(),
+                        .to_string(),
                 ));
             }
-        }
 
-        "remove-key" => {
-            use crate::config::delete_config;
+            match parts[1] {
 
-            delete_config()?;
-            return Ok(TerrekAction::Output(
-                "API key removed successfully.".into(),
-            ));
-        }
+                "setup" | "change-key" => {
+                    ai_setup()?;
+                    return Ok(TerrekAction::Output(
+                        "Gemini API key saved successfully.".into(),
+                    ));
+                }
 
-        _ => {
-            let prompt = parts[1..].join(" ");
-           let reply = match ask_gemini(&context, &prompt) {
-            Ok(r) => r,
-           Err(e) => {
-           let err_msg = format!("{}", e);
-          return Ok(TerrekAction::Output(err_msg));
-           } 
-            };
-            return Ok(TerrekAction::Output(reply));
+                "show-config" => {
+                    use crate::config::load_config;
+
+                    if let Some(cfg) = load_config() {
+                        let preview =
+                            &cfg.gemini_api_key[..6.min(cfg.gemini_api_key.len())];
+
+                        return Ok(TerrekAction::Output(format!(
+                            "Current key starts with: {}****",
+                            preview
+                        )));
+                    } else {
+                        return Ok(TerrekAction::Output(
+                            "No API key configured.".into(),
+                        ));
+                    }
+                }
+
+                "remove-key" => {
+                    use crate::config::delete_config;
+                    delete_config()?;
+
+                    return Ok(TerrekAction::Output(
+                        "API key removed successfully.".into(),
+                    ));
+                }
+
+                _ => {
+                    let prompt = parts[1..].join(" ");
+                    let reply = match ask_gemini(&context, &prompt) {
+                        Ok(r) => r,
+                        Err(e) => return Ok(TerrekAction::Output(format!("{}", e))),
+                    };
+
+                    return Ok(TerrekAction::Output(reply));
+                }
+            }
         }
-    }
-}
 
         "help" => {
             r#"Terrek Commands:
@@ -153,12 +153,9 @@ pub fn handle_command(
   terrek history
   terrek last
   terrek ai
-  terrek search <keyword>
-  terrek exit"#
+  terrek search <keyword>"#
                 .to_string()
         }
-
-        "exit" => return Ok(TerrekAction::ExitToShell),
 
         _ => "Unknown Terrek command".to_string(),
     };
