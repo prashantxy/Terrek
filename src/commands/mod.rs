@@ -128,7 +128,7 @@ pub fn handle_command(cmd: &str) -> Result<TerrekAction> {
 
         _ => {
             let prompt = parts[1..].join(" ");
-           let reply = match ask_gemini(&prompt) {
+           let reply = match ask_gemini(&context, &prompt) {
             Ok(r) => r,
            Err(e) => {
            let err_msg = format!("{}", e);

@@ -1,5 +1,5 @@
- use std::path::Pathbuf;
-
+ use std::path::PathBuf;
+ use crate::state::ContextState;
  pub fn build_gemini_prompt(
     context: &ContextState,
     user_input: &str,

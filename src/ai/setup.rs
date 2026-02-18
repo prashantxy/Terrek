@@ -29,6 +29,7 @@ pub fn setup() -> anyhow::Result<()> {
     let cfg = Config {
         provider: "gemini".to_string(),
         gemini_api_key: key,
+        auto_ai_on_error: true,
     };
 
     save_config(&cfg)?;

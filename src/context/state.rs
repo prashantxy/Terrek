@@ -19,12 +19,13 @@ impl ContextState {
             project_root: None,
             git_branch: None,
             file_tree_snapshot: None,
-           shell: std::env::var("SHELL").unwrap_or("unknown".into()),
+            shell: std::env::var("SHELL").unwrap_or("unknown".into()),
             os: std::env::consts::OS.to_string(),
             last_commands: Vec::new(),
             last_error: None,
             last_exit_code: None,
             active_file: None,
+            is_internal: false,
         }
     }
 

@@ -3,8 +3,8 @@ use reqwest::blocking::Client;
 use serde_json::json;
 
 use crate::config::load_config;
-use crate::context::ContextState;
-use crate::ai::prompt::build_gemini_prompt;
+use crate::state::ContextState;
+use crate::ai::prompts::build_gemini_prompt;
 
 fn get_key() -> Result<String> {
     if let Some(cnf) = load_config() {
