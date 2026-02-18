@@ -8,8 +8,13 @@ pub enum TerrekAction {
     ExitToShell,
     Output(String),
 }
+use crate::context::ContextState;
 
-pub fn handle_command(cmd: &str) -> Result<TerrekAction> {
+pub fn handle_command(
+    context: &ContextState,
+    cmd: &str,
+) -> Result<TerrekAction>
+ {
     let parts: Vec<&str> = cmd.trim().split_whitespace().collect();
 
     if parts.is_empty() {

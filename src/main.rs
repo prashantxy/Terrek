@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
+use crate::ai::auto::maybe_trigger_ai;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
@@ -19,7 +20,6 @@ use commands::{handle_command, TerrekAction};
 
 use context::state::ContextState;
 use context::git::get_git_branch;
-use context::context_builder::build_context;
 
 enum Mode {
     Shell,
@@ -190,10 +190,10 @@ fn main() -> anyhow::Result<()> {
                         })?;
 
                         if context.last_exit_code.unwrap_or(0) != 0 {
-                            println!("\n[Terrek AI] Failure detected.\n");
-                            let prompt = build_context(&context);
-                            println!("{}", prompt);
-                        }
+                        if let Err(e) = ai::auto::maybe_trigger_ai(&context) {
+                       println!("\n[Terrek AI Error] {}\n", e);
+    }
+}
 
                         current_output.clear();
                     }
@@ -202,8 +202,10 @@ fn main() -> anyhow::Result<()> {
                         println!();
 
                         let action = handle_command(
-                            command_buffer.trim_start_matches("terrek ").trim(),
-                        )?;
+                        &context,
+                       command_buffer.trim_start_matches("terrek ").trim(),
+                      )?;
+
 
                         match action {
                             TerrekAction::ExitToShell => {
