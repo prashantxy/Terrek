@@ -23,7 +23,7 @@ use context::git::get_git_branch;
 
 enum Mode {
     Shell,
-    Command,
+    Terrek,
 }
 
 fn draw_prompt(buf: &str) {
@@ -99,12 +99,13 @@ fn main() -> anyhow::Result<()> {
 
         if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
             match code {
-                KeyCode::Char('x') if modifiers.contains(KeyModifiers::CONTROL) => {
-                    mode = Mode::Command;
-                    command_buffer.clear();
-                    println!("\n-- Terrek Command Mode --");
-                    draw_prompt("");
-                }
+                KeyCode::Char('t') if modifiers.contains(KeyModifiers::CONTROL) => {
+                mode = Mode::Terrek;
+                command_buffer.clear();
+                println!("\n-- TERREK MODE --");
+                draw_prompt("");
+               }
+
 
                 KeyCode::Char(c) => match mode {
                     Mode::Shell => {
