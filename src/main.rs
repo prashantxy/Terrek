@@ -13,6 +13,7 @@ mod ai;
 mod db;
 mod commands;
 mod context;
+mod config;
 
 use db::worker::{start_db_worker, DbEvent};
 use commands::{handle_command, TerrekAction};
@@ -43,10 +44,7 @@ fn main() -> anyhow::Result<()> {
     let session_id = Uuid::new_v4().to_string();
 
     let mut context = ContextState::new();
-
-    // -----------------------------
-    // Create Persistent Shell PTY
-    // -----------------------------
+---------------------------
 
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
