@@ -3,23 +3,20 @@ use std::io::{Read, Write};
 use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
-use crate::ai::auto::maybe_trigger_ai;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 
+use uuid::Uuid;
+
 mod db;
 mod commands;
-mod config;
 mod context;
-mod ai;
 
 use db::worker::{start_db_worker, DbEvent};
 use commands::{handle_command, TerrekAction};
-
 use context::state::ContextState;
-use context::git::get_git_branch;
 
 enum Mode {
     Shell,
@@ -27,7 +24,7 @@ enum Mode {
 }
 
 fn draw_prompt(buf: &str) {
-    print!("\r\x1B[K[Terrek Command] > {}", buf);
+    print!("\r\x1B[K[Terrek] > {}", buf);
     std::io::stdout().flush().ok();
 }
 
@@ -43,15 +40,13 @@ fn main() -> anyhow::Result<()> {
     });
 
     let db_tx: Sender<DbEvent> = start_db_worker();
-    let session_id = uuid::Uuid::new_v4().to_string();
+    let session_id = Uuid::new_v4().to_string();
 
     let mut context = ContextState::new();
 
-    if let Ok(path) = std::env::current_dir() {
-        context.set_project_root(path);
-    }
-
-    context.set_git_branch(get_git_branch());
+    // -----------------------------
+    // Create Persistent Shell PTY
+    // -----------------------------
 
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
@@ -62,8 +57,7 @@ fn main() -> anyhow::Result<()> {
     })?;
 
     let shell = std::env::var("SHELL").unwrap_or("/bin/bash".to_string());
-    let mut cmd = CommandBuilder::new(shell);
-    cmd.env("PS1", "[Terrek-Shell] \\w > ");
+    let cmd = CommandBuilder::new(shell);
     let _child = pair.slave.spawn_command(cmd)?;
 
     let mut reader = pair.master.try_clone_reader()?;
@@ -85,12 +79,19 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    let mut current_output = String::new();
+    // -----------------------------
+    // Runtime State
+    // -----------------------------
+
     let mut mode = Mode::Shell;
-    let mut command_buffer = String::new();
     let mut shell_input_buffer = String::new();
+    let mut terrek_buffer = String::new();
+    let mut current_output = String::new();
+
+    println!("You are in SHELL session. Press Ctrl+T for TERREK mode.");
 
     loop {
+        // Print shell output
         while let Ok(text) = out_rx.try_recv() {
             print!("{}", text);
             std::io::stdout().flush().ok();
@@ -99,46 +100,58 @@ fn main() -> anyhow::Result<()> {
 
         if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
             match code {
+
+                // -----------------------------
+                // Switch to TERREK Mode
+                // -----------------------------
                 KeyCode::Char('t') if modifiers.contains(KeyModifiers::CONTROL) => {
-                mode = Mode::Terrek;
-                command_buffer.clear();
-                println!("\n-- TERREK MODE --");
-                draw_prompt("");
-               }
+                    mode = Mode::Terrek;
+                    terrek_buffer.clear();
+                    println!("\n-- TERREK MODE --");
+                    draw_prompt("");
+                }
 
-
+                // -----------------------------
+                // Character Input
+                // -----------------------------
                 KeyCode::Char(c) => match mode {
                     Mode::Shell => {
                         shell_input_buffer.push(c);
                         writer.write_all(&[c as u8])?;
                         writer.flush()?;
                     }
-                    Mode::Command => {
-                        command_buffer.push(c);
-                        draw_prompt(&command_buffer);
+                    Mode::Terrek => {
+                        terrek_buffer.push(c);
+                        draw_prompt(&terrek_buffer);
                     }
                 },
 
+                // -----------------------------
+                // Backspace
+                // -----------------------------
                 KeyCode::Backspace => match mode {
                     Mode::Shell => {
                         shell_input_buffer.pop();
                         writer.write_all(b"\x7f")?;
                         writer.flush()?;
                     }
-                    Mode::Command => {
-                        command_buffer.pop();
-                        draw_prompt(&command_buffer);
+                    Mode::Terrek => {
+                        terrek_buffer.pop();
+                        draw_prompt(&terrek_buffer);
                     }
                 },
 
+                // -----------------------------
+                // Enter Handling
+                // -----------------------------
                 KeyCode::Enter => match mode {
+
+                    // ---- SHELL MODE ----
                     Mode::Shell => {
                         current_output.clear();
 
-                        let full_command = format!(
-                            "{}; echo __TERREK_EXIT__$?\n",
-                            shell_input_buffer
-                        );
+                        let full_command =
+                            format!("{}; echo __TERREK_EXIT__$?\n", shell_input_buffer);
 
                         writer.write_all(full_command.as_bytes())?;
                         writer.flush()?;
@@ -157,27 +170,11 @@ fn main() -> anyhow::Result<()> {
                                     let clean_output =
                                         current_output[..pos].to_string();
 
-                                    context.update_exit_code(
-                                        code,
-                                        if code != 0 {
-                                            Some(clean_output.clone())
-                                        } else {
-                                            None
-                                        },
-                                    );
-
+                                    context.update_exit_code(code, None);
                                     current_output = clean_output;
                                 }
                             }
                         }
-
-                        context.set_git_branch(get_git_branch());
-
-                        if let Ok(path) = std::env::current_dir() {
-                            context.set_project_root(path);
-                        }
-
-                        context.debug_print();
 
                         db_tx.send(DbEvent::StoreCommand {
                             session_id: session_id.clone(),
@@ -190,43 +187,49 @@ fn main() -> anyhow::Result<()> {
                             timestamp: chrono::Local::now().timestamp(),
                         })?;
 
-                        if context.last_exit_code.unwrap_or(0) != 0 {
-                        if let Err(e) = ai::auto::maybe_trigger_ai(&context) {
-                       println!("\n[Terrek AI Error] {}\n", e);
-    }
-}
-
                         current_output.clear();
                     }
 
-                    Mode::Command => {
+                    // ---- TERREK MODE ----
+                    Mode::Terrek => {
                         println!();
 
-                        let action = handle_command(
-                        &context,
-                       command_buffer.trim_start_matches("terrek ").trim(),
-                      )?;
+                        let input = terrek_buffer.trim();
 
+                        if input.starts_with("terrek ") {
+                            let stripped =
+                                input.trim_start_matches("terrek ").trim();
 
-                        match action {
-                            TerrekAction::ExitToShell => {
-                                clear_prompt();
-                                mode = Mode::Shell;
+                            let action =
+                                handle_command(&context, stripped)?;
+
+                            match action {
+                                TerrekAction::Output(text) => {
+                                    println!("[Terrek] {}", text);
+                                }
                             }
-                            TerrekAction::Output(text) => {
-                                println!("[Terrek] {}", text);
-                                draw_prompt("");
-                            }
+                        } else {
+                            // Raw forward to shell
+                            let full_command =
+                                format!("{}\n", input);
+
+                            writer.write_all(full_command.as_bytes())?;
+                            writer.flush()?;
                         }
 
-                        command_buffer.clear();
+                        terrek_buffer.clear();
+                        draw_prompt("");
                     }
                 },
 
+                // -----------------------------
+                // ESC Handling
+                // -----------------------------
                 KeyCode::Esc => match mode {
-                    Mode::Command => {
+                    Mode::Terrek => {
                         clear_prompt();
                         mode = Mode::Shell;
+                        println!("\n-- SHELL MODE --");
                     }
                     Mode::Shell => break Ok(()),
                 },
