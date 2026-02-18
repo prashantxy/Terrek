@@ -18,6 +18,8 @@ impl ContextState {
             project_root: None,
             git_branch: None,
             file_tree_snapshot: None,
+            shell:None,
+            os:None,
             last_commands: Vec::new(),
             last_error: None,
             last_exit_code: None,
