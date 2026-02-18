@@ -10,6 +10,7 @@ pub struct ContextState {
     pub last_error: Option<String>,
     pub last_exit_code: Option<i32>,
     pub active_file: Option<PathBuf>,
+    pub 
 }
 
 impl ContextState {

@@ -6,7 +6,7 @@ use std::{fs, path::PathBuf};
 pub struct Config {
     pub provider: String,
     pub gemini_api_key: String,
-    
+    pub auto_ai_on_error: bool,
 }
 
 fn config_path() -> PathBuf {
