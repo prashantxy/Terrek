@@ -1,4 +1,4 @@
- use::std::path::Pathbuf;
+ use std::path::Pathbuf;
 
  pub fn build_gemini_prompt(
     context: &TerrekContext,
