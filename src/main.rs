@@ -30,9 +30,6 @@ enum Mode {
     Terrek,
 }
 
-/* =========================
-   SUGGESTION ENGINE
-========================= */
 
 struct SuggestionEngine {
     static_commands: Vec<String>,
@@ -66,14 +63,10 @@ impl SuggestionEngine {
     }
 }
 
-/* =========================
-   AI WORKER
-========================= */
-
 fn start_ai_worker(
     rx: CbReceiver<String>,
     tx: CbSender<Vec<String>>,
-    context: ContextState,
+    context: Arc<Mutex<ContextState>>,
 ) {
     thread::spawn(move || {
         let mut last_input = String::new();
@@ -95,7 +88,9 @@ Return only command list.",
                 input
             );
 
-            match ai::gemini::ask_gemini(&context, &prompt) {
+            let ctx = context.lock().unwrap();
+
+            match ai::gemini::ask_gemini(&ctx, &prompt) {
                 Ok(resp) => {
                     let suggestions = resp
                         .lines()
@@ -111,18 +106,13 @@ Return only command list.",
     });
 }
 
-/* =========================
-   PROMPT RENDERING
-========================= */
-
 fn draw_prompt(buf: &str, suggestion: Option<&String>) {
     print!("\r\x1B[K[Terrek] > {}", buf);
 
     if let Some(s) = suggestion {
         if s.starts_with(buf) {
             let ghost = &s[buf.len()..];
-            print!("\x1B[90m{}\x1B[0m");
-            print!("{}", ghost);
+            print!("\x1B[90m{}\x1B[0m", ghost);
         }
     }
 
@@ -134,10 +124,6 @@ fn clear_prompt() {
     std::io::stdout().flush().ok();
 }
 
-/* =========================
-   MAIN
-========================= */
-
 fn main() -> anyhow::Result<()> {
     enable_raw_mode()?;
     let _cleanup = scopeguard::guard((), |_| {
@@ -147,9 +133,7 @@ fn main() -> anyhow::Result<()> {
     let db_tx: Sender<DbEvent> = start_db_worker();
     let session_id = Uuid::new_v4().to_string();
 
-    let mut context = ContextState::new();
-
-    /* ===== AI CHANNELS ===== */
+    let context = Arc::new(Mutex::new(ContextState::new()));
 
     let (ai_tx, ai_rx) = unbounded();
     let (ai_out_tx, ai_out_rx) = unbounded();
@@ -167,8 +151,6 @@ fn main() -> anyhow::Result<()> {
     }));
 
     start_ai_worker(ai_rx, ai_out_tx, context.clone());
-
-    /* ===== PTY SETUP ===== */
 
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
@@ -209,8 +191,6 @@ fn main() -> anyhow::Result<()> {
     println!("You are in SHELL session. Press Ctrl+T for TERREK mode.");
 
     loop {
-
-        /* === AI RESULT UPDATE === */
 
         if let Ok(ai_suggestions) = ai_out_rx.try_recv() {
             let mut eng = engine.lock().unwrap();
@@ -295,7 +275,11 @@ fn main() -> anyhow::Result<()> {
                         writer.write_all(full_command.as_bytes())?;
                         writer.flush()?;
 
-                        context.add_command(shell_input_buffer.clone());
+                        {
+                            let mut ctx = context.lock().unwrap();
+                            ctx.add_command(shell_input_buffer.clone());
+                        }
+
                         shell_input_buffer.clear();
                     }
 
@@ -312,8 +296,9 @@ fn main() -> anyhow::Result<()> {
                             let stripped =
                                 input.trim_start_matches("terrek ").trim();
 
+                            let ctx = context.lock().unwrap();
                             let action =
-                                handle_command(&context, stripped)?;
+                                handle_command(&ctx, stripped)?;
 
                             match action {
                                 TerrekAction::Output(text) => {
@@ -344,5 +329,3 @@ fn main() -> anyhow::Result<()> {
         }
     }
 }
-
-
