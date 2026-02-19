@@ -24,4 +24,8 @@ toml = "0.9.12"
 dirs = "6.0.0"
 reqwest = { version = "0.11", features = ["json", "blocking"] }
 serde_json = "1.0.149"
+rustyline = "17.0.2"
+tokio = "1.49.0"
+crossbeam-channel = "0.5.15"
+fuzzy-matcher = "0.3.7"
 
