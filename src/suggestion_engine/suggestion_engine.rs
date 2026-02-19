@@ -23,6 +23,6 @@ impl Suggestion_Engine{
             }
         }
         scored.sort_by(| a,b |,b.0.cmp(&a.0));
-        scored.into_iter().map(|(_,s)|s).take(5).collect();
+        scored.into_iter().map(|(_,s)|s).take(5).collect()
     }
 }
