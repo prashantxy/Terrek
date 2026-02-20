@@ -305,10 +305,10 @@ fn main() -> anyhow::Result<()> {
                                     println!("[Terrek] {}", text);
                                 }
                             }
-                        } else {
+                         } else {
                             writer.write_all(format!("{}\n", input).as_bytes())?;
                             writer.flush()?;
-                        }
+                         }
 
                         terrek_buffer.clear();
                         draw_prompt("", None);
@@ -323,7 +323,7 @@ fn main() -> anyhow::Result<()> {
                     }
                     Mode::Shell => break Ok(()),
                 },
-
+ 
                 _ => {}
             }
         }
