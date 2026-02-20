@@ -65,3 +65,4 @@ terrek ai setup
 → paste key
 → done
 
+![alt text](image.png)
