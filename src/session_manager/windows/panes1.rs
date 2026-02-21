@@ -1,3 +1,3 @@
-pub struct pane{
-    
+pub struct Pane{
+
 }
