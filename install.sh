@@ -10,7 +10,7 @@ if [[ "$OS" == "Darwin" ]]; then
   FILE="terrek-macos-latest"
 elif [[ "$OS" == "Linux" ]]; then
   FILE="terrek-ubuntu-latest"
-else
+else Í
   echo "Unsupported OS"
   exit 1
 fi
