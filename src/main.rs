@@ -316,7 +316,7 @@ fn main() -> anyhow::Result<()> {
                 },
 
                 KeyCode::Esc => match mode {
-                    Mode::Terrek => {
+                     Mode::Terrek => {
                         clear_prompt();
                         mode = Mode::Shell;
                         println!("\n-- SHELL MODE --");
