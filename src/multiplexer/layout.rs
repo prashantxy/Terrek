@@ -3,7 +3,21 @@ pub enum LayoutNode{
    split{
      direction: SplitDirection;
      ratio: f32;
-     first:  
-     second:
+     first:  Box<LayoutNode>;
+     second:  Box<LayoutNode>;
    },
+}
+
+pub enum SplitDirection{
+    Horizontal;
+    Vertical;
+}
+
+impl LayoutNode {
+    pub fn split_leaf(
+        &mut self,
+        target: Uuid,
+        new_pane: Uuid,
+        direction: SplitDirection,
+    );
 }
