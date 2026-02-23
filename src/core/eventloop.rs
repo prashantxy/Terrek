@@ -13,7 +13,7 @@ pub fn run(mut mux: Multiplexer) -> Result<()> {
     let mut last_frame = Instant::now();
 
     loop {
-        // 1️⃣ Non-blocking input polling
+        // Non-blocking input polling
         while event::poll(Duration::from_millis(0))? {
             match event::read()? {
                 Event::Key(key) => {
@@ -26,7 +26,7 @@ pub fn run(mut mux: Multiplexer) -> Result<()> {
             }
         }
 
-        // 2️⃣ Render at fixed frame rate
+        //  Render at fixed frame rate
         if last_frame.elapsed() >= FRAME_TIME {
             renderer::draw(&mux)?;
             last_frame = Instant::now();
