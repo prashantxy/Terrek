@@ -1,10 +1,7 @@
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
-use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use multiplexer::server::Multiplexer;
-use multiplexer::commands::TerrekCommand;
+
 use crossbeam_channel::{unbounded, Receiver as CbReceiver, Sender as CbSender};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -14,17 +11,18 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode},
 };
 
-use uuid::Uuid;
-
 mod ai;
 mod db;
 mod commands;
 mod context;
 mod config;
+mod multiplexer;
+mod renderer;
 
-use db::worker::{start_db_worker, DbEvent};
 use commands::{handle_command, TerrekAction};
 use context::state::ContextState;
+use multiplexer::server::Multiplexer;
+use multiplexer::commands::TerrekCommand;
 
 #[derive(Debug)]
 enum Mode {
@@ -66,9 +64,9 @@ impl SuggestionEngine {
 
 struct App {
     mode: Mode,
+
     shell_input_buffer: String,
     terrek_buffer: String,
-    current_output: String,
 
     engine: Arc<Mutex<SuggestionEngine>>,
     context: Arc<Mutex<ContextState>>,
@@ -76,12 +74,12 @@ struct App {
     ai_tx: CbSender<String>,
     ai_out_rx: CbReceiver<Vec<String>>,
 
-    mux:Multiplexer,
+    mux: Multiplexer,
     mux_prefix: bool,
 }
 
 impl App {
-    fn new(writer: Box<dyn Write + Send>) -> Self {
+    fn new(mux: Multiplexer) -> Self {
         let context = Arc::new(Mutex::new(ContextState::new()));
 
         let (ai_tx, ai_rx) = unbounded();
@@ -105,18 +103,18 @@ impl App {
             mode: Mode::Shell,
             shell_input_buffer: String::new(),
             terrek_buffer: String::new(),
-            current_output: String::new(),
             engine,
             context,
             ai_tx,
             ai_out_rx,
-            writer,
+            mux,
+            mux_prefix: false,
         }
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
         match key.code {
-
+            // Ctrl+T → Enter Terrek mode
             KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.mode = Mode::Terrek;
                 self.terrek_buffer.clear();
@@ -128,7 +126,6 @@ impl App {
                 Mode::Shell => {
                     self.shell_input_buffer.push(c);
                     self.mux.send_key(key)?;
-                    
                 }
                 Mode::Terrek => {
                     self.terrek_buffer.push(c);
@@ -140,8 +137,7 @@ impl App {
             KeyCode::Backspace => match self.mode {
                 Mode::Shell => {
                     self.shell_input_buffer.pop();
-                    self.writer.write_all(b"\x7f")?;
-                    self.writer.flush()?;
+                    self.mux.send_key(key)?;
                 }
                 Mode::Terrek => {
                     self.terrek_buffer.pop();
@@ -151,9 +147,7 @@ impl App {
 
             KeyCode::Enter => match self.mode {
                 Mode::Shell => {
-                    let cmd = format!("{}\n", self.shell_input_buffer);
-                    self.mux.send_key(KeyEvent::from(KeyCode::Enter))?;
-                    self.writer.flush()?;
+                    self.mux.send_key(key)?;
                     self.shell_input_buffer.clear();
                 }
 
@@ -178,10 +172,6 @@ impl App {
                                 println!("[Terrek] {}", text);
                             }
                         }
-                    } else {
-                        self.writer
-                            .write_all(format!("{}\n", input).as_bytes())?;
-                        self.writer.flush()?;
                     }
 
                     self.terrek_buffer.clear();
@@ -267,75 +257,61 @@ fn main() -> anyhow::Result<()> {
         disable_raw_mode().ok();
     });
 
-    let pty_system = native_pty_system();
-    let pair = pty_system.openpty(PtySize {
-        rows: 24,
-        cols: 80,
-        pixel_width: 0,
-        pixel_height: 0,
-    })?;
-
-    let shell = std::env::var("SHELL").unwrap_or("/bin/bash".to_string());
-    let cmd = CommandBuilder::new(shell);
-    let _child = pair.slave.spawn_command(cmd)?;
-
-    let mut reader = pair.master.try_clone_reader()?;
-    let writer = pair.master.take_writer()?;
-
-    let mut app = App::new(Box::new(writer));
+    let mux = Multiplexer::new()?;   // Multiplexer spawns first shell
+    let mut app = App::new(mux);
 
     println!("You are in SHELL session. Press Ctrl+T for TERREK mode.");
-
+    println!("Multiplexer prefix: Ctrl+B");
 
     loop {
-   
-    app.mux.poll();
+        // Poll PTY output for all panes
+        app.mux.poll();
 
-   
-    app.handle_ai_updates();
+        // AI suggestion updates
+        app.handle_ai_updates();
 
-    
-    if event::poll(Duration::from_millis(10))? {
-        if let Event::Key(key) = event::read()? {
+        if event::poll(Duration::from_millis(10))? {
+            if let Event::Key(key) = event::read()? {
 
-            
-            if key.code == KeyCode::Char('t')
-                && key.modifiers.contains(KeyModifiers::CONTROL)
-            {
-                app.mux_prefix = true;
-                continue;
-            }
-
-            if app.mux_prefix {
-                app.mux_prefix = false;
-
-                match key.code {
-                    KeyCode::Char('v') =>
-                        app.mux.execute(TerrekCommand::SplitVertical)?,
-
-                    KeyCode::Char('h') =>
-                        app.mux.execute(TerrekCommand::SplitHorizontal)?,
-
-                    KeyCode::Char('o') =>
-                        app.mux.execute(TerrekCommand::NextPane)?,
-
-                    KeyCode::Char('x') =>
-                        app.mux.execute(TerrekCommand::ClosePane)?,
-
-                    _ => {}
+                // Ctrl+B → Multiplexer prefix
+                if key.code == KeyCode::Char('b')
+                    && key.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    app.mux_prefix = true;
+                    continue;
                 }
 
-                continue;
-            }
+                // Handle prefix commands
+                if app.mux_prefix {
+                    app.mux_prefix = false;
 
-            if !app.handle_key(key)? {
-                break;
+                    match key.code {
+                        KeyCode::Char('v') =>
+                            app.mux.execute(TerrekCommand::SplitVertical)?,
+
+                        KeyCode::Char('h') =>
+                            app.mux.execute(TerrekCommand::SplitHorizontal)?,
+
+                        KeyCode::Char('o') =>
+                            app.mux.execute(TerrekCommand::NextPane)?,
+
+                        KeyCode::Char('x') =>
+                            app.mux.execute(TerrekCommand::ClosePane)?,
+
+                        _ => {}
+                    }
+
+                    continue;
+                }
+
+                if !app.handle_key(key)? {
+                    break;
+                }
             }
         }
-    }
 
-    renderer::draw(&app.mux)?;
-}
+        renderer::draw(&app.mux)?;
+    }
 
     Ok(())
 }
