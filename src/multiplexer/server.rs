@@ -24,24 +24,36 @@ impl Multiplexer {
         self.active_session = self.sessions.len() - 1;
     }
 
-    
     pub fn kill_session(&mut self, id: Uuid) {
         self.sessions.retain(|s| s.id != id);
 
-        if self.active_session >= self.sessions.len() {
+        if self.sessions.is_empty() {
             self.active_session = 0;
+        } else if self.active_session >= self.sessions.len() {
+            self.active_session = self.sessions.len() - 1;
         }
     }
 
-  
-    pub fn active_session_mut(&mut self) -> &mut Session {
-        &mut self.sessions[self.active_session]
+    pub fn active_session_mut(&mut self) -> Option<&mut Session> {
+        self.sessions.get_mut(self.active_session)
     }
 
     pub fn send_input_to_active(&mut self, key: KeyEvent) -> Result<()> {
-        let session = self.active_session_mut();
-        let window = session.active_window_mut();
-        let pane = window.active_pane_mut();
+
+        let session = match self.active_session_mut() {
+            Some(s) => s,
+            None => return Ok(()), // no session → ignore input safely
+        };
+
+        let window = match session.active_window_mut() {
+            Some(w) => w,
+            None => return Ok(()),
+        };
+
+        let pane = match window.active_pane_mut() {
+            Some(p) => p,
+            None => return Ok(()),
+        };
 
         match key.code {
             KeyCode::Char(c) => {

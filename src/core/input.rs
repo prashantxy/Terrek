@@ -10,9 +10,11 @@ pub struct InputHandler {
 
 impl InputHandler {
     pub fn new() -> Self {
-        Self {
-            prefix_mode: false,
-        }
+        Self { prefix_mode: false }
+    }
+
+    pub fn is_prefix_active(&self) -> bool {
+        self.prefix_mode
     }
 
     pub fn handle_key(
@@ -22,7 +24,6 @@ impl InputHandler {
     ) -> Result<()> {
 
         if self.prefix_mode {
-            self.prefix_mode = false;
 
             match key.code {
                 KeyCode::Char('v') => {
@@ -40,13 +41,19 @@ impl InputHandler {
                 KeyCode::Char('c') => {
                     mux.execute(TerrekCommand::NewWindow)?;
                 }
-                _ => {}
+                KeyCode::Esc => {
+                    // Cancel prefix
+                }
+                _ => {
+                    // Unknown prefix command → keep prefix active
+                    return Ok(());
+                }
             }
 
+            self.prefix_mode = false;
             return Ok(());
         }
 
-       
         if key.code == KeyCode::Char('t')
             && key.modifiers.contains(KeyModifiers::CONTROL)
         {
