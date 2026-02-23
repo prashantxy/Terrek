@@ -1,10 +1,10 @@
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::{Read, Write};
-use std::sync::mpsc::{channel, Sender};
-use std::thread;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
-use crossbeam_channel::{unbounded, Sender as CbSender, Receiver as CbReceiver};
+use crossbeam_channel::{unbounded, Receiver as CbReceiver, Sender as CbSender};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
@@ -25,11 +25,11 @@ use db::worker::{start_db_worker, DbEvent};
 use commands::{handle_command, TerrekAction};
 use context::state::ContextState;
 
+#[derive(Debug)]
 enum Mode {
     Shell,
     Terrek,
 }
-
 
 struct SuggestionEngine {
     static_commands: Vec<String>,
@@ -63,65 +63,200 @@ impl SuggestionEngine {
     }
 }
 
+struct App {
+    mode: Mode,
+    shell_input_buffer: String,
+    terrek_buffer: String,
+    current_output: String,
+
+    engine: Arc<Mutex<SuggestionEngine>>,
+    context: Arc<Mutex<ContextState>>,
+
+    ai_tx: CbSender<String>,
+    ai_out_rx: CbReceiver<Vec<String>>,
+
+    writer: Box<dyn Write + Send>,
+}
+
+impl App {
+    fn new(writer: Box<dyn Write + Send>) -> Self {
+        let context = Arc::new(Mutex::new(ContextState::new()));
+
+        let (ai_tx, ai_rx) = unbounded();
+        let (ai_out_tx, ai_out_rx) = unbounded();
+
+        let engine = Arc::new(Mutex::new(SuggestionEngine {
+            static_commands: vec![
+                "terrek hello".into(),
+                "terrek time".into(),
+                "terrek history".into(),
+                "terrek ai".into(),
+                "terrek exit".into(),
+            ],
+            history: vec![],
+            ai_cache: vec![],
+        }));
+
+        start_ai_worker(ai_rx, ai_out_tx, context.clone());
+
+        Self {
+            mode: Mode::Shell,
+            shell_input_buffer: String::new(),
+            terrek_buffer: String::new(),
+            current_output: String::new(),
+            engine,
+            context,
+            ai_tx,
+            ai_out_rx,
+            writer,
+        }
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+        match key.code {
+
+            KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.mode = Mode::Terrek;
+                self.terrek_buffer.clear();
+                println!("\n-- TERREK MODE --");
+                self.draw_prompt();
+            }
+
+            KeyCode::Char(c) => match self.mode {
+                Mode::Shell => {
+                    self.shell_input_buffer.push(c);
+                    self.writer.write_all(&[c as u8])?;
+                    self.writer.flush()?;
+                }
+                Mode::Terrek => {
+                    self.terrek_buffer.push(c);
+                    self.ai_tx.send(self.terrek_buffer.clone()).ok();
+                    self.draw_prompt();
+                }
+            },
+
+            KeyCode::Backspace => match self.mode {
+                Mode::Shell => {
+                    self.shell_input_buffer.pop();
+                    self.writer.write_all(b"\x7f")?;
+                    self.writer.flush()?;
+                }
+                Mode::Terrek => {
+                    self.terrek_buffer.pop();
+                    self.draw_prompt();
+                }
+            },
+
+            KeyCode::Enter => match self.mode {
+                Mode::Shell => {
+                    let cmd = format!("{}\n", self.shell_input_buffer);
+                    self.writer.write_all(cmd.as_bytes())?;
+                    self.writer.flush()?;
+                    self.shell_input_buffer.clear();
+                }
+
+                Mode::Terrek => {
+                    println!();
+                    let input = self.terrek_buffer.trim();
+
+                    {
+                        let mut eng = self.engine.lock().unwrap();
+                        eng.history.push(input.to_string());
+                    }
+
+                    if input.starts_with("terrek ") {
+                        let stripped =
+                            input.trim_start_matches("terrek ").trim();
+
+                        let ctx = self.context.lock().unwrap();
+                        let action = handle_command(&ctx, stripped)?;
+
+                        match action {
+                            TerrekAction::Output(text) => {
+                                println!("[Terrek] {}", text);
+                            }
+                        }
+                    } else {
+                        self.writer
+                            .write_all(format!("{}\n", input).as_bytes())?;
+                        self.writer.flush()?;
+                    }
+
+                    self.terrek_buffer.clear();
+                    self.draw_prompt();
+                }
+            },
+
+            KeyCode::Esc => match self.mode {
+                Mode::Terrek => {
+                    self.mode = Mode::Shell;
+                    println!("\n-- SHELL MODE --");
+                }
+                Mode::Shell => return Ok(false),
+            },
+
+            _ => {}
+        }
+
+        Ok(true)
+    }
+
+    fn draw_prompt(&self) {
+        let suggestions = {
+            let eng = self.engine.lock().unwrap();
+            eng.suggest(&self.terrek_buffer)
+        };
+
+        print!("\r\x1B[K[Terrek] > {}", self.terrek_buffer);
+
+        if let Some(s) = suggestions.first() {
+            if s.starts_with(&self.terrek_buffer) {
+                let ghost = &s[self.terrek_buffer.len()..];
+                print!("\x1B[90m{}\x1B[0m", ghost);
+            }
+        }
+
+        std::io::stdout().flush().ok();
+    }
+
+    fn handle_ai_updates(&mut self) {
+        if let Ok(ai_suggestions) = self.ai_out_rx.try_recv() {
+            let mut eng = self.engine.lock().unwrap();
+            eng.ai_cache = ai_suggestions;
+        }
+    }
+}
+
 fn start_ai_worker(
     rx: CbReceiver<String>,
     tx: CbSender<Vec<String>>,
     context: Arc<Mutex<ContextState>>,
 ) {
     thread::spawn(move || {
-        let mut last_input = String::new();
-
         for input in rx {
-            if input.len() < 3 || input == last_input {
+            if input.len() < 3 {
                 continue;
             }
 
-            last_input = input.clone();
-
-            thread::sleep(std::time::Duration::from_millis(400));
+            thread::sleep(Duration::from_millis(400));
 
             let prompt = format!(
-                "You are a CLI suggestion engine.
-User typed: \"{}\"
-Suggest 5 possible Terrek commands.
-Return only command list.",
+                "User typed: \"{}\". Suggest 5 Terrek commands.",
                 input
             );
 
             let ctx = context.lock().unwrap();
 
-            match ai::gemini::ask_gemini(&ctx, &prompt) {
-                Ok(resp) => {
-                    let suggestions = resp
-                        .lines()
-                        .map(|l| l.trim().to_string())
-                        .filter(|l| !l.is_empty())
-                        .collect::<Vec<_>>();
+            if let Ok(resp) = ai::gemini::ask_gemini(&ctx, &prompt) {
+                let suggestions = resp
+                    .lines()
+                    .map(|l| l.trim().to_string())
+                    .collect();
 
-                    tx.send(suggestions).ok();
-                }
-                Err(_) => {}
+                tx.send(suggestions).ok();
             }
         }
     });
-}
-
-fn draw_prompt(buf: &str, suggestion: Option<&String>) {
-    print!("\r\x1B[K[Terrek] > {}", buf);
-
-    if let Some(s) = suggestion {
-        if s.starts_with(buf) {
-            let ghost = &s[buf.len()..];
-            print!("\x1B[90m{}\x1B[0m", ghost);
-        }
-    }
-
-    std::io::stdout().flush().ok();
-}
-
-fn clear_prompt() {
-    print!("\r\x1B[K");
-    std::io::stdout().flush().ok();
 }
 
 fn main() -> anyhow::Result<()> {
@@ -129,28 +264,6 @@ fn main() -> anyhow::Result<()> {
     let _cleanup = scopeguard::guard((), |_| {
         disable_raw_mode().ok();
     });
-
-    let db_tx: Sender<DbEvent> = start_db_worker();
-    let session_id = Uuid::new_v4().to_string();
-
-    let context = Arc::new(Mutex::new(ContextState::new()));
-
-    let (ai_tx, ai_rx) = unbounded();
-    let (ai_out_tx, ai_out_rx) = unbounded();
-
-    let engine = Arc::new(Mutex::new(SuggestionEngine {
-        static_commands: vec![
-            "terrek hello".into(),
-            "terrek time".into(),
-            "terrek history".into(),
-            "terrek ai".into(),
-            "terrek exit".into(),
-        ],
-        history: vec![],
-        ai_cache: vec![],
-    }));
-
-    start_ai_worker(ai_rx, ai_out_tx, context.clone());
 
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
@@ -165,167 +278,34 @@ fn main() -> anyhow::Result<()> {
     let _child = pair.slave.spawn_command(cmd)?;
 
     let mut reader = pair.master.try_clone_reader()?;
-    let mut writer = pair.master.take_writer()?;
+    let writer = pair.master.take_writer()?;
 
-    let (out_tx, out_rx) = channel::<String>();
+    let mut app = App::new(Box::new(writer));
+
+    println!("You are in SHELL session. Press Ctrl+T for TERREK mode.");
 
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
         loop {
-            match reader.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let text = String::from_utf8_lossy(&buffer[..n]).to_string();
-                    out_tx.send(text).ok();
-                }
-                Err(_) => break,
+            if let Ok(n) = reader.read(&mut buffer) {
+                if n == 0 { break; }
+                print!("{}", String::from_utf8_lossy(&buffer[..n]));
+                std::io::stdout().flush().ok();
             }
         }
     });
 
-    let mut mode = Mode::Shell;
-    let mut shell_input_buffer = String::new();
-    let mut terrek_buffer = String::new();
-    let mut current_output = String::new();
-
-    println!("You are in SHELL session. Press Ctrl+T for TERREK mode.");
-
     loop {
+        app.handle_ai_updates();
 
-        if let Ok(ai_suggestions) = ai_out_rx.try_recv() {
-            let mut eng = engine.lock().unwrap();
-            eng.ai_cache = ai_suggestions;
-        }
-
-        while let Ok(text) = out_rx.try_recv() {
-            print!("{}", text);
-            std::io::stdout().flush().ok();
-            current_output.push_str(&text);
-        }
-
-        if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
-            match code {
-
-                KeyCode::Char('t') if modifiers.contains(KeyModifiers::CONTROL) => {
-                    mode = Mode::Terrek;
-                    terrek_buffer.clear();
-                    println!("\n-- TERREK MODE --");
-                    draw_prompt("", None);
+        if event::poll(Duration::from_millis(10))? {
+            if let Event::Key(key) = event::read()? {
+                if !app.handle_key(key)? {
+                    break;
                 }
-
-                KeyCode::Char(c) => match mode {
-                    Mode::Shell => {
-                        shell_input_buffer.push(c);
-                        writer.write_all(&[c as u8])?;
-                        writer.flush()?;
-                    }
-                    Mode::Terrek => {
-                        terrek_buffer.push(c);
-                        ai_tx.send(terrek_buffer.clone()).ok();
-
-                        let suggestions = {
-                            let eng = engine.lock().unwrap();
-                            eng.suggest(&terrek_buffer)
-                        };
-
-                        draw_prompt(&terrek_buffer, suggestions.first());
-                    }
-                },
-
-                KeyCode::Right => {
-                    if let Mode::Terrek = mode {
-                        let suggestion = {
-                            let eng = engine.lock().unwrap();
-                            eng.suggest(&terrek_buffer).first().cloned()
-                        };
-
-                        if let Some(s) = suggestion {
-                            terrek_buffer = s;
-                            draw_prompt(&terrek_buffer, None);
-                        }
-                    }
-                }
-
-                KeyCode::Backspace => match mode {
-                    Mode::Shell => {
-                        shell_input_buffer.pop();
-                        writer.write_all(b"\x7f")?;
-                        writer.flush()?;
-                    }
-                    Mode::Terrek => {
-                        terrek_buffer.pop();
-
-                        let suggestions = {
-                            let eng = engine.lock().unwrap();
-                            eng.suggest(&terrek_buffer)
-                        };
-
-                        draw_prompt(&terrek_buffer, suggestions.first());
-                    }
-                },
-
-                KeyCode::Enter => match mode {
-
-                    Mode::Shell => {
-                        current_output.clear();
-
-                        let full_command =
-                            format!("{}; echo __TERREK_EXIT__$?\n", shell_input_buffer);
-
-                        writer.write_all(full_command.as_bytes())?;
-                        writer.flush()?;
-
-                        {
-                            let mut ctx = context.lock().unwrap();
-                            ctx.add_command(shell_input_buffer.clone());
-                        }
-
-                        shell_input_buffer.clear();
-                    }
-
-                    Mode::Terrek => {
-                        println!();
-                        let input = terrek_buffer.trim();
-
-                        {
-                            let mut eng = engine.lock().unwrap();
-                            eng.history.push(input.to_string());
-                        }
-
-                        if input.starts_with("terrek ") {
-                            let stripped =
-                                input.trim_start_matches("terrek ").trim();
-
-                            let ctx = context.lock().unwrap();
-                            let action =
-                                handle_command(&ctx, stripped)?;
-
-                            match action {
-                                TerrekAction::Output(text) => {
-                                    println!("[Terrek] {}", text);
-                                }
-                            }
-                         } else {
-                            writer.write_all(format!("{}\n", input).as_bytes())?;
-                            writer.flush()?;
-                         }
-
-                        terrek_buffer.clear();
-                        draw_prompt("", None);
-                    }
-                },
-
-                KeyCode::Esc => match mode {
-                     Mode::Terrek => {
-                        clear_prompt();
-                        mode = Mode::Shell;
-                        println!("\n-- SHELL MODE --");
-                    }
-                    Mode::Shell => break Ok(()),
-                },
- 
-                _ => {}
             }
         }
     }
+
+    Ok(())
 }
