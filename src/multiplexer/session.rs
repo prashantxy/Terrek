@@ -10,5 +10,4 @@ impl Session{
     pub fn create_window(&mut self);
     pub fn close_window(&mut self,index : usize);
     pub fn active_window(&mut self)-> &mut window;
-    pub fn exit(&mut self);
 }
