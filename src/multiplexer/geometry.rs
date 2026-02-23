@@ -5,3 +5,8 @@ pub struct Rect {
     pub height: u16,
 }
 
+pub fn compute_layout(
+    node: &LayoutNode,
+    area: Rect,
+    map: &mut HashMap<Uuid, Rect>,
+);
