@@ -3,7 +3,8 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-
+use multiplexer::server::Multiplexer;
+use multiplexer::commands::TerrekCommand;
 use crossbeam_channel::{unbounded, Receiver as CbReceiver, Sender as CbSender};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -75,7 +76,8 @@ struct App {
     ai_tx: CbSender<String>,
     ai_out_rx: CbReceiver<Vec<String>>,
 
-    writer: Box<dyn Write + Send>,
+    mux:Multiplexer,
+    mux_prefix: bool,
 }
 
 impl App {
@@ -125,8 +127,8 @@ impl App {
             KeyCode::Char(c) => match self.mode {
                 Mode::Shell => {
                     self.shell_input_buffer.push(c);
-                    self.writer.write_all(&[c as u8])?;
-                    self.writer.flush()?;
+                    self.mux.send_key(key)?;
+                    
                 }
                 Mode::Terrek => {
                     self.terrek_buffer.push(c);
@@ -150,7 +152,7 @@ impl App {
             KeyCode::Enter => match self.mode {
                 Mode::Shell => {
                     let cmd = format!("{}\n", self.shell_input_buffer);
-                    self.writer.write_all(cmd.as_bytes())?;
+                    self.mux.send_key(KeyEvent::from(KeyCode::Enter))?;
                     self.writer.flush()?;
                     self.shell_input_buffer.clear();
                 }
@@ -284,28 +286,56 @@ fn main() -> anyhow::Result<()> {
 
     println!("You are in SHELL session. Press Ctrl+T for TERREK mode.");
 
-    thread::spawn(move || {
-        let mut buffer = [0u8; 4096];
-        loop {
-            if let Ok(n) = reader.read(&mut buffer) {
-                if n == 0 { break; }
-                print!("{}", String::from_utf8_lossy(&buffer[..n]));
-                std::io::stdout().flush().ok();
-            }
-        }
-    });
 
     loop {
-        app.handle_ai_updates();
+   
+    app.mux.poll();
 
-        if event::poll(Duration::from_millis(10))? {
-            if let Event::Key(key) = event::read()? {
-                if !app.handle_key(key)? {
-                    break;
+   
+    app.handle_ai_updates();
+
+    
+    if event::poll(Duration::from_millis(10))? {
+        if let Event::Key(key) = event::read()? {
+
+            
+            if key.code == KeyCode::Char('t')
+                && key.modifiers.contains(KeyModifiers::CONTROL)
+            {
+                app.mux_prefix = true;
+                continue;
+            }
+
+            if app.mux_prefix {
+                app.mux_prefix = false;
+
+                match key.code {
+                    KeyCode::Char('v') =>
+                        app.mux.execute(TerrekCommand::SplitVertical)?,
+
+                    KeyCode::Char('h') =>
+                        app.mux.execute(TerrekCommand::SplitHorizontal)?,
+
+                    KeyCode::Char('o') =>
+                        app.mux.execute(TerrekCommand::NextPane)?,
+
+                    KeyCode::Char('x') =>
+                        app.mux.execute(TerrekCommand::ClosePane)?,
+
+                    _ => {}
                 }
+
+                continue;
+            }
+
+            if !app.handle_key(key)? {
+                break;
             }
         }
     }
+
+    renderer::draw(&app.mux)?;
+}
 
     Ok(())
 }
