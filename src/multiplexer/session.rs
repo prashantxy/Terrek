@@ -4,3 +4,8 @@ pub struct Session{
     pub windows : Vec<String>;
     pub active_windows : usize;
 }
+
+impl Session{
+    pub fn new(name: String) -> Self;
+    pub fn create_windows(&mut self)
+}
