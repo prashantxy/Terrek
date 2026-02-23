@@ -7,5 +7,5 @@ pub struct Pane {
 impl Pane{
     pub fn new() -> Result<Self>;
     pub fn write(&mut self, bytes : &u[8]) -> Result<()>;
-    pub fn 
+    pub fn resize(&mut self , row:u16, cols:u16);
 }
