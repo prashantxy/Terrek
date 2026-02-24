@@ -107,7 +107,7 @@ impl App {
             context,
             ai_tx,
             ai_out_rx,
-            pub fn new(session_name: String) -> Result<Self>,
+            mux: Multiplexer::new("main".to_string())?,
             mux_prefix: false,
         })
     }
