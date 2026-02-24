@@ -1,7 +1,7 @@
 use anyhow::Result;
 use uuid::Uuid;
 
-use std::io::{Read, Write};
+use std::io::{Read, Write, ErrorKind};
 
 use portable_pty::{
     CommandBuilder,
@@ -26,7 +26,7 @@ impl ScrollbackBuffer {
             self.lines.push(line.to_string());
         }
 
-        // Optional: limit memory
+        // Prevent unbounded memory growth
         if self.lines.len() > 10_000 {
             self.lines.drain(0..1000);
         }
@@ -93,16 +93,25 @@ impl Pane {
         Ok(())
     }
 
-    /// Read shell output and push into scrollback buffer
+    /// Non-blocking read loop — drains all available PTY output
     pub fn read_output(&mut self) -> Result<()> {
         let mut buf = [0u8; 4096];
 
-        match self.reader.read(&mut buf) {
-            Ok(n) if n > 0 => {
-                let text = String::from_utf8_lossy(&buf[..n]);
-                self.buffer.push(&text);
+        loop {
+            match self.reader.read(&mut buf) {
+                Ok(0) => break, // no more data
+                Ok(n) => {
+                    let text = String::from_utf8_lossy(&buf[..n]);
+                    self.buffer.push(&text);
+                }
+                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                    break; // nothing ready right now
+                }
+                Err(e) => {
+                    eprintln!("PTY read error: {:?}", e);
+                    break;
+                }
             }
-            _ => {}
         }
 
         Ok(())
