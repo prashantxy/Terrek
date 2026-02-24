@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode};
 
-use crate::multiplexer::server::Multiplexer;
+use crate::multiplexer::Multiplexer;
 use crate::renderer;
 use crate::core::input::InputHandler;
 
