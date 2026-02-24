@@ -97,7 +97,17 @@ impl App {
             ai_cache: vec![],
         }));
 
-        start_ai_worker(ai_rx, ai_out_tx, context.clone());
+        // Start AI worker that updates suggestions live
+        start_ai_worker(ai_rx, ai_out_tx.clone(), context.clone());
+
+        // Start background thread to listen for AI outputs continuously
+        let engine_clone = engine.clone();
+        thread::spawn(move || {
+            for suggestions in ai_out_rx {
+                let mut eng = engine_clone.lock().unwrap();
+                eng.ai_cache = suggestions;
+            }
+        });
 
         Ok(Self {
             mode: Mode::Shell,
@@ -106,7 +116,7 @@ impl App {
             engine,
             context,
             ai_tx,
-            ai_out_rx,
+            ai_out_rx, // still useful for optional polling
             mux: Multiplexer::new("main".to_string())?,
             mux_prefix: false,
         })
@@ -114,18 +124,13 @@ impl App {
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
         match self.mode {
-            Mode::Shell => {
-                self.handle_shell_key(key)?;
-            }
-            Mode::Terrek => {
-                self.handle_terrek_key(key)?;
-            }
+            Mode::Shell => self.handle_shell_key(key)?,
+            Mode::Terrek => self.handle_terrek_key(key)?,
         }
         Ok(true)
     }
 
     fn handle_shell_key(&mut self, key: KeyEvent) -> Result<()> {
-        // Enter Terrek mode on Ctrl+T
         if is_ctrl_t(&key) {
             self.mode = Mode::Terrek;
             self.terrek_buffer.clear();
@@ -133,7 +138,6 @@ impl App {
             return Ok(());
         }
 
-        // Normal shell typing goes to the mux
         match key.code {
             KeyCode::Char(c) => {
                 self.shell_buffer.push(c);
@@ -153,7 +157,7 @@ impl App {
     }
 
     fn handle_terrek_key(&mut self, key: KeyEvent) -> Result<()> {
-        // Exit Terrek mode on Esc
+        // Exit Terrek mode
         if key.code == KeyCode::Esc {
             self.mode = Mode::Shell;
             return Ok(());
@@ -181,7 +185,7 @@ impl App {
         match key.code {
             KeyCode::Char(c) => {
                 self.terrek_buffer.push(c);
-                self.ai_tx.send(self.terrek_buffer.clone()).ok();
+                self.ai_tx.send(self.terrek_buffer.clone()).ok(); // live AI update
             }
             KeyCode::Backspace => {
                 self.terrek_buffer.pop();
@@ -223,20 +227,13 @@ impl App {
 
         std::io::Write::flush(&mut std::io::stdout()).ok();
     }
-
-    fn handle_ai_updates(&mut self) {
-        if let Ok(ai_suggestions) = self.ai_out_rx.try_recv() {
-            let mut eng = self.engine.lock().unwrap();
-            eng.ai_cache = ai_suggestions;
-        }
-    }
 }
 
 fn is_ctrl_t(key: &KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('t') | KeyCode::Char('T'))
         && key.modifiers.contains(KeyModifiers::CONTROL)
 }
- 
+
 fn is_ctrl_m(key: &KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('m') | KeyCode::Char('M'))
         && key.modifiers.contains(KeyModifiers::CONTROL)
@@ -249,9 +246,7 @@ fn start_ai_worker(
 ) {
     thread::spawn(move || {
         for input in rx {
-            if input.len() < 3 {
-                continue;
-            }
+            if input.len() < 3 { continue; }
             thread::sleep(Duration::from_millis(400));
 
             let prompt = format!(
@@ -278,7 +273,7 @@ fn main() -> Result<()> {
 
     loop {
         app.mux.poll();
-        app.handle_ai_updates();
+        app.handle_ai_updates(); // optional polling if needed
 
         if event::poll(Duration::from_millis(10))? {
             if let Event::Key(key) = event::read()? {
