@@ -1,19 +1,18 @@
-use portable_pty::{native_pty_system, PtySize};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use std::io::write;
-use multiplexer::server::Multiplexer;
-use multiplexer::commands::TerrekCommand;
 
+use anyhow::Result;
 use crossbeam_channel::{unbounded, Receiver as CbReceiver, Sender as CbSender};
-use fuzzy_matcher::skim::SkimMatcherV2;
-use fuzzy_matcher::FuzzyMatcher;
-
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
+
+use multiplexer::Multiplexer;
+use multiplexer::command::TerrekCommand;
 
 mod ai;
 mod db;
@@ -22,6 +21,7 @@ mod context;
 mod config;
 mod renderer;
 mod multiplexer;
+
 use commands::{handle_command, TerrekAction};
 use context::state::ContextState;
 
@@ -29,21 +29,6 @@ use context::state::ContextState;
 enum Mode {
     Shell,
     Terrek,
-}
-
-struct App {
-    mode: Mode,
-    shell_input_buffer: String,
-    terrek_buffer: String,
-
-    engine: Arc<Mutex<SuggestionEngine>>,
-    context: Arc<Mutex<ContextState>>,
-
-    ai_tx: CbSender<String>,
-    ai_out_rx: CbReceiver<Vec<String>>,
-
-    mux: Multiplexer,
-    mux_prefix: bool,
 }
 
 struct SuggestionEngine {
@@ -78,8 +63,23 @@ impl SuggestionEngine {
     }
 }
 
+struct App {
+    mode: Mode,
+    shell_buffer: String,
+    terrek_buffer: String,
+
+    engine: Arc<Mutex<SuggestionEngine>>,
+    context: Arc<Mutex<ContextState>>,
+
+    ai_tx: CbSender<String>,
+    ai_out_rx: CbReceiver<Vec<String>>,
+
+    mux: Multiplexer,
+    mux_prefix: bool,
+}
+
 impl App {
-    fn new() -> anyhow::Result<Self> {
+    fn new() -> Result<Self> {
         let context = Arc::new(Mutex::new(ContextState::new()));
 
         let (ai_tx, ai_rx) = unbounded();
@@ -99,33 +99,32 @@ impl App {
 
         start_ai_worker(ai_rx, ai_out_tx, context.clone());
 
-        // Initialize Multiplexer (this internally creates first PTY)
-        let pty_system = native_pty_system();
-        let mux = Multiplexer::new(pty_system, PtySize {
-            rows: 24,
-            cols: 80,
-            pixel_width: 0,
-            pixel_height: 0,
-        })?;
-
         Ok(Self {
             mode: Mode::Shell,
-            shell_input_buffer: String::new(),
+            shell_buffer: String::new(),
             terrek_buffer: String::new(),
             engine,
             context,
             ai_tx,
             ai_out_rx,
-            mux,
+            mux: Multiplexer::new()?,
             mux_prefix: false,
         })
     }
 
-    fn handle_key(&mut self, key: KeyEvent) -> anyhow::Result<bool> {
+    fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
+
+            // Enter Terrek mode
+            KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.mode = Mode::Terrek;
+                self.terrek_buffer.clear();
+                println!("\n-- TERREK MODE --");
+            }
+
             KeyCode::Char(c) => match self.mode {
                 Mode::Shell => {
-                    self.shell_input_buffer.push(c);
+                    self.shell_buffer.push(c);
                     self.mux.send_key(key)?;
                 }
                 Mode::Terrek => {
@@ -137,7 +136,7 @@ impl App {
 
             KeyCode::Backspace => match self.mode {
                 Mode::Shell => {
-                    self.shell_input_buffer.pop();
+                    self.shell_buffer.pop();
                     self.mux.send_key(key)?;
                 }
                 Mode::Terrek => {
@@ -149,7 +148,7 @@ impl App {
             KeyCode::Enter => match self.mode {
                 Mode::Shell => {
                     self.mux.send_key(key)?;
-                    self.shell_input_buffer.clear();
+                    self.shell_buffer.clear();
                 }
                 Mode::Terrek => {
                     println!();
@@ -166,13 +165,11 @@ impl App {
                     }
 
                     self.terrek_buffer.clear();
-                    self.draw_prompt();
+                    self.mode = Mode::Shell;
                 }
             },
 
-            KeyCode::Esc => {
-                self.mode = Mode::Shell;
-            }
+            KeyCode::Esc => return Ok(false),
 
             _ => {}
         }
@@ -181,8 +178,21 @@ impl App {
     }
 
     fn draw_prompt(&self) {
-        print!("\r[Terrek] > {}", self.terrek_buffer);
-        std::io::stdout().flush().ok();
+        let suggestions = {
+            let eng = self.engine.lock().unwrap();
+            eng.suggest(&self.terrek_buffer)
+        };
+
+        print!("\r\x1B[K[Terrek] > {}", self.terrek_buffer);
+
+        if let Some(s) = suggestions.first() {
+            if s.starts_with(&self.terrek_buffer) {
+                let ghost = &s[self.terrek_buffer.len()..];
+                print!("\x1B[90m{}\x1B[0m", ghost);
+            }
+        }
+
+        std::io::Write::flush(&mut std::io::stdout()).ok();
     }
 
     fn handle_ai_updates(&mut self) {
@@ -214,28 +224,23 @@ fn start_ai_worker(
             let ctx = context.lock().unwrap();
 
             if let Ok(resp) = ai::gemini::ask_gemini(&ctx, &prompt) {
-                let suggestions =
-                    resp.lines().map(|l| l.trim().to_string()).collect();
+                let suggestions = resp.lines().map(|l| l.trim().to_string()).collect();
                 tx.send(suggestions).ok();
             }
         }
     });
 }
 
-fn main() -> anyhow::Result<()> {
+fn main() -> Result<()> {
     enable_raw_mode()?;
+
     let _cleanup = scopeguard::guard((), |_| {
         disable_raw_mode().ok();
     });
 
     let mut app = App::new()?;
 
-    println!("You are in TERREK SHELL.");
-    println!("Ctrl+T → prefix mode");
-    println!("Ctrl+T + v → vertical split");
-    println!("Ctrl+T + h → horizontal split");
-    println!("Ctrl+T + o → next pane");
-    println!("Ctrl+T + x → close pane");
+    println!("Terrek started. Ctrl+B = prefix. Esc = exit.");
 
     loop {
         app.mux.poll();
@@ -244,8 +249,7 @@ fn main() -> anyhow::Result<()> {
         if event::poll(Duration::from_millis(10))? {
             if let Event::Key(key) = event::read()? {
 
-                // Prefix logic
-                if key.code == KeyCode::Char('t')
+                if key.code == KeyCode::Char('b')
                     && key.modifiers.contains(KeyModifiers::CONTROL)
                 {
                     app.mux_prefix = true;

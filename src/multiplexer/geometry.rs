@@ -9,4 +9,6 @@ pub fn compute_layout(
     node: &LayoutNode,
     area: Rect,
     map: &mut HashMap<Uuid, Rect>,
-);
+){
+    
+};
