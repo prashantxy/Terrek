@@ -21,7 +21,7 @@ mod db;
 mod commands;
 mod context;
 mod config;
-
+mod renderer;
 use db::worker::{start_db_worker, DbEvent};
 use commands::{handle_command, TerrekAction};
 use context::state::ContextState;
@@ -140,7 +140,7 @@ impl App {
             KeyCode::Backspace => match self.mode {
                 Mode::Shell => {
                     self.shell_input_buffer.pop();
-                    self.writer.write_all(b"\x7f")?;
+                    .write_all(b"\x7f")?;
                     self.writer.flush()?;
                 }
                 Mode::Terrek => {
@@ -183,7 +183,7 @@ impl App {
                             .write_all(format!("{}\n", input).as_bytes())?;
                         self.writer.flush()?;
                     }
-
+self.writer
                     self.terrek_buffer.clear();
                     self.draw_prompt();
                 }
