@@ -1,4 +1,5 @@
 use anyhow::Result;
+use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::multiplexer::pane::Pane;
 
@@ -14,7 +15,6 @@ pub struct Window {
 }
 
 impl Window {
-
     pub fn new(initial_pane: Pane) -> Self {
         Self {
             panes: vec![initial_pane],
@@ -27,11 +27,30 @@ impl Window {
         self.panes.get_mut(self.active_pane)
     }
 
+    /// Send keyboard input to active pane
+    pub fn send_key(&mut self, key: KeyEvent) -> Result<()> {
+        if let Some(pane) = self.active_pane_mut() {
+            match key.code {
+                KeyCode::Char(c) => {
+                    pane.write(&[c as u8])?;
+                }
+                KeyCode::Enter => {
+                    pane.write(b"\n")?;
+                }
+                KeyCode::Backspace => {
+                    pane.write(&[0x7f])?;
+                }
+                KeyCode::Tab => {
+                    pane.write(b"\t")?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     /// Generic split handler
     pub fn split(&mut self, _direction: SplitDirection) -> Result<()> {
-        // Phase 2: layout not yet implemented
-        // So we just create another pane
-
         let new_pane = Pane::spawn_shell()?;
         self.panes.push(new_pane);
         self.active_pane = self.panes.len() - 1;
@@ -62,13 +81,12 @@ impl Window {
 
         self.panes.remove(self.active_pane);
 
-        // Adjust focus properly
         if self.active_pane >= self.panes.len() {
             self.active_pane = self.panes.len() - 1;
         }
     }
 
-    /// Resize all panes equally (Phase 2 simple layout)
+    /// Resize all panes equally (temporary simple layout)
     pub fn resize_all(&mut self, rows: u16, cols: u16) -> Result<()> {
         let pane_count = self.panes.len() as u16;
 

@@ -12,7 +12,6 @@ pub struct Session {
 }
 
 impl Session {
-
     pub fn new(name: String) -> Result<Self> {
         let initial_pane = Pane::spawn_shell()?;
         let initial_window = Window::new(initial_pane);
@@ -35,7 +34,7 @@ impl Session {
 
     pub fn close_window(&mut self, index: usize) {
         if self.windows.len() <= 1 {
-            return; // never allow zero windows
+            return;
         }
 
         if index < self.windows.len() {
@@ -45,6 +44,11 @@ impl Session {
                 self.active_window = self.windows.len() - 1;
             }
         }
+    }
+
+    /// 🔥 ADD THIS (immutable accessor)
+    pub fn active_window(&self) -> Option<&Window> {
+        self.windows.get(self.active_window)
     }
 
     pub fn active_window_mut(&mut self) -> Option<&mut Window> {

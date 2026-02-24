@@ -10,7 +10,32 @@ use portable_pty::{
     native_pty_system,
 };
 
-use crate::renderer::screen::ScrollbackBuffer;
+pub struct ScrollbackBuffer {
+    lines: Vec<String>,
+}
+
+impl ScrollbackBuffer {
+    pub fn new() -> Self {
+        Self {
+            lines: Vec::new(),
+        }
+    }
+
+    pub fn push(&mut self, text: &str) {
+        for line in text.lines() {
+            self.lines.push(line.to_string());
+        }
+
+        // Optional: limit memory
+        if self.lines.len() > 10_000 {
+            self.lines.drain(0..1000);
+        }
+    }
+
+    pub fn lines(&self) -> &[String] {
+        &self.lines
+    }
+}
 
 pub struct Pane {
     pub id: Uuid,

@@ -1,6 +1,8 @@
 use anyhow::Result;
+use crossterm::event::KeyEvent;
 
 use crate::multiplexer::session::Session;
+use crate::multiplexer::command::TerrekCommand;
 
 pub mod session;
 pub mod geometry;
@@ -17,7 +19,7 @@ pub struct Multiplexer {
 impl Multiplexer {
     /// Create multiplexer with first session
     pub fn new(session_name: String) -> Result<Self> {
-        let initial_session = Session::new(session_name)?; // <- FIX
+        let initial_session = Session::new(session_name)?;
 
         Ok(Self {
             sessions: vec![initial_session],
@@ -61,6 +63,57 @@ impl Multiplexer {
         }
     }
 
+    /// Send key to active pane
+    pub fn send_key(&mut self, key: KeyEvent) -> Result<()> {
+        if let Some(session) = self.active_session_mut() {
+            if let Some(window) = session.active_window_mut() {
+                window.send_key(key)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Execute high-level command (splits, navigation, etc.)
+    pub fn execute(&mut self, cmd: TerrekCommand) -> Result<()> {
+    match cmd {
+        TerrekCommand::SplitVertical => {
+            if let Some(session) = self.active_session_mut() {
+                session.split_vertical()?;
+            }
+        }
+
+        TerrekCommand::SplitHorizontal => {
+            if let Some(session) = self.active_session_mut() {
+                session.split_horizontal()?;
+            }
+        }
+
+        TerrekCommand::NextPane => {
+            if let Some(session) = self.active_session_mut() {
+                if let Some(window) = session.active_window_mut() {
+                    window.next_pane();
+                }
+            }
+        }
+
+        TerrekCommand::ClosePane => {
+            if let Some(session) = self.active_session_mut() {
+                if let Some(window) = session.active_window_mut() {
+                    window.close_active_pane();
+                }
+            }
+        }
+
+       
+        _ => {
+            
+        }
+    }
+
+    Ok(())
+}
+
+    /// Poll active session panes
     pub fn poll(&mut self) -> Result<()> {
         if let Some(session) = self.active_session_mut() {
             if let Some(window) = session.active_window_mut() {

@@ -7,7 +7,7 @@ use crossterm::{
 };
 use std::io::{stdout, Write};
 
-use crate::multiplexer::server::Multiplexer;
+use crate::multiplexer::Multiplexer;
 use crate::multiplexer::pane::Pane;
 
 pub fn draw(mux: &Multiplexer) -> Result<()> {
