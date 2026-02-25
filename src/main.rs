@@ -3,7 +3,7 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::Result;
-use crossbeam_channel::{unbounded, Sender as CbSender};
+use crossbeam_channel::{unbounded, Sender as CbSender, Receiver as CbReceiver};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
@@ -81,7 +81,8 @@ impl App {
     fn new() -> Result<Self> {
         let context = Arc::new(Mutex::new(ContextState::new()));
 
-        let (ai_tx, ai_rx) = unbounded();
+        // Specify type for unbounded channel
+        let (ai_tx, ai_rx): (CbSender<String>, CbReceiver<String>) = unbounded();
 
         let engine = Arc::new(Mutex::new(SuggestionEngine {
             static_commands: vec![
@@ -133,7 +134,7 @@ impl App {
             mux_prefix: false,
         })
     }
-
+}
     fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
             // Enter Terrek mode
