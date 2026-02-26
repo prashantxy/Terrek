@@ -195,7 +195,7 @@ impl App {
                 }
 
                 self.terrek_buffer.clear();
-                self.draw_prompt(); // 🔥 stay in Terrek mode
+                self.draw_prompt(); 
             }
         },
 
