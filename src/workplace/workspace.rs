@@ -1,12 +1,21 @@
-use std::thread;
 use crate::commands;
 
- pub struct workspace{
-    pub id:String,
-    pub time : Iv32,
-    pub command : String,
+pub struct Workspace {
+    pub id: String,
+    pub time: i32,
+    pub command: String,
 }
 
-pub fn workspace_command(&mut self,command:String)->{
-    let cmd = workspace.id;
+impl Workspace {
+    pub fn new(id: String, time: i32, command: String) -> Self {
+        Self { id, time, command }
+    }
+
+    pub fn workspace_command(&mut self, command: String) {
+        self.command = command;
+    }
+
+    pub fn get_id(&self) -> &str {
+        &self.id
+    }
 }
