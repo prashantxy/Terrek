@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::io::{stdout, Write};
 
 use anyhow::Result;
 use crossbeam_channel::{unbounded, Sender as CbSender, Receiver as CbReceiver};
@@ -8,6 +9,7 @@ use crossterm::{
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
     terminal::{disable_raw_mode, enable_raw_mode},
 };
+
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
@@ -80,8 +82,6 @@ struct App {
 impl App {
     fn new() -> Result<Self> {
         let context = Arc::new(Mutex::new(ContextState::new()));
-
-      
         let (ai_tx, ai_rx): (CbSender<String>, CbReceiver<String>) = unbounded();
 
         let engine = Arc::new(Mutex::new(SuggestionEngine {
@@ -95,33 +95,37 @@ impl App {
             history: vec![],
             ai_cache: vec![],
         }));
-   
-       
-        let engine_clone = engine.clone();
-        let context_clone = context.clone();
-        thread::spawn(move || {
-            for input in ai_rx {
-                if input.len() < 3 {
-                    continue;
+
+        // AI worker thread
+        {
+            let engine_clone = engine.clone();
+            let context_clone = context.clone();
+
+            thread::spawn(move || {
+                for input in ai_rx {
+                    if input.len() < 3 {
+                        continue;
+                    }
+
+                    thread::sleep(Duration::from_millis(300));
+
+                    let prompt = format!(
+                        "User typed: \"{}\". Suggest 5 Terrek commands.",
+                        input
+                    );
+
+                    let ctx = context_clone.lock().unwrap();
+
+                    if let Ok(resp) = ai::gemini::ask_gemini(&ctx, &prompt) {
+                        let suggestions: Vec<String> =
+                            resp.lines().map(|l| l.trim().to_string()).collect();
+
+                        let mut eng = engine_clone.lock().unwrap();
+                        eng.ai_cache = suggestions;
+                    }
                 }
-
-                thread::sleep(Duration::from_millis(400));
-
-                let prompt = format!(
-                    "User typed: \"{}\". Suggest 5 Terrek commands.",
-                    input
-                );
-
-                let ctx = context_clone.lock().unwrap();
-
-                if let Ok(resp) = ai::gemini::ask_gemini(&ctx, &prompt) {
-                    let suggestions: Vec<String> =
-                        resp.lines().map(|l| l.trim().to_string()).collect();
-                    let mut eng = engine_clone.lock().unwrap();
-                    eng.ai_cache = suggestions;
-                }
-            }
-        });
+            });
+        }
 
         Ok(Self {
             mode: Mode::Shell,
@@ -136,14 +140,16 @@ impl App {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
-    match key.code {
-        // 🔥 Toggle Terrek Mode
-        KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+        // 🔥 FIRST: Always check mode toggle BEFORE forwarding to mux
+        if key.code == KeyCode::Char('t')
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
             match self.mode {
                 Mode::Shell => {
                     self.mode = Mode::Terrek;
                     self.terrek_buffer.clear();
                     println!("\n-- TERREK MODE ENABLED --");
+                    self.draw_prompt();
                 }
                 Mode::Terrek => {
                     self.mode = Mode::Shell;
@@ -153,59 +159,63 @@ impl App {
             return Ok(true);
         }
 
-        KeyCode::Char(c) => match self.mode {
-            Mode::Shell => {
-                self.shell_buffer.push(c);
-                self.mux.send_key(key)?;
-            }
-            Mode::Terrek => {
-                self.terrek_buffer.push(c);
-                self.ai_tx.send(self.terrek_buffer.clone()).ok();
-                self.draw_prompt();
-            }
-        },
-
-        KeyCode::Backspace => match self.mode {
-            Mode::Shell => {
-                self.shell_buffer.pop();
-                self.mux.send_key(key)?;
-            }
-            Mode::Terrek => {
-                self.terrek_buffer.pop();
-                self.draw_prompt();
-            }
-        },
-
-        KeyCode::Enter => match self.mode {
-            Mode::Shell => {
-                self.mux.send_key(key)?;
-                self.shell_buffer.clear();
-            }
-            Mode::Terrek => {
-                println!();
-                let input = self.terrek_buffer.trim();
-
-                if input.starts_with("terrek ") {
-                    let stripped = input.trim_start_matches("terrek ").trim();
-                    let ctx = self.context.lock().unwrap();
-                    let action = handle_command(&ctx, stripped)?;
-
-                    let TerrekAction::Output(text) = action;
-                    println!("[Terrek] {}", text);
+        match key.code {
+            KeyCode::Char(c) => match self.mode {
+                Mode::Shell => {
+                    self.shell_buffer.push(c);
+                    self.mux.send_key(key)?;
                 }
+                Mode::Terrek => {
+                    self.terrek_buffer.push(c);
+                    self.ai_tx.send(self.terrek_buffer.clone()).ok();
+                    self.draw_prompt();
+                }
+            },
 
-                self.terrek_buffer.clear();
-                self.draw_prompt(); 
-            }
-        },
+            KeyCode::Backspace => match self.mode {
+                Mode::Shell => {
+                    self.shell_buffer.pop();
+                    self.mux.send_key(key)?;
+                }
+                Mode::Terrek => {
+                    self.terrek_buffer.pop();
+                    self.draw_prompt();
+                }
+            },
 
-        KeyCode::Esc => return Ok(false),
+            KeyCode::Enter => match self.mode {
+                Mode::Shell => {
+                    self.mux.send_key(key)?;
+                    self.shell_buffer.clear();
+                }
+                Mode::Terrek => {
+                    println!();
+                    let input = self.terrek_buffer.trim();
 
-        _ => {}
+                    if input.starts_with("terrek ") {
+                        let stripped =
+                            input.trim_start_matches("terrek ").trim();
+
+                        let ctx = self.context.lock().unwrap();
+                        let action = handle_command(&ctx, stripped)?;
+
+                        if let TerrekAction::Output(text) = action {
+                            println!("[Terrek] {}", text);
+                        }
+                    }
+
+                    self.terrek_buffer.clear();
+                    self.draw_prompt();
+                }
+            },
+
+            KeyCode::Esc => return Ok(false),
+
+            _ => {}
+        }
+
+        Ok(true)
     }
-
-    Ok(true)
-}
 
     fn draw_prompt(&self) {
         let suggestions = {
@@ -222,27 +232,33 @@ impl App {
             }
         }
 
-        std::io::Write::flush(&mut std::io::stdout()).ok();
+        stdout().flush().ok();
     }
 }
 
 fn main() -> Result<()> {
     enable_raw_mode()?;
 
-    let _cleanup = scopeguard::guard((), |_| { disable_raw_mode().ok(); });
+    let _guard = scopeguard::guard((), |_| {
+        disable_raw_mode().ok();
+    });
 
     let mut app = App::new()?;
 
-    println!("Terrek started. Ctrl+T = enter Terrek, Ctrl+M = prefix, Esc = exit.");
+    println!("Terrek started.");
+    println!("Ctrl+T = Terrek Mode");
+    println!("Ctrl+M = Prefix");
+    println!("Esc = Exit");
 
     loop {
-        app.mux.poll()?;
-
+        // IMPORTANT: poll events BEFORE mux.poll
         if event::poll(Duration::from_millis(10))? {
             if let Event::Key(key) = event::read()? {
 
-               
-                if key.code == KeyCode::Char('m') && key.modifiers.contains(KeyModifiers::CONTROL) {
+                // Ctrl+M prefix handling
+                if key.code == KeyCode::Char('m')
+                    && key.modifiers.contains(KeyModifiers::CONTROL)
+                {
                     app.mux_prefix = true;
                     continue;
                 }
@@ -251,10 +267,14 @@ fn main() -> Result<()> {
                     app.mux_prefix = false;
 
                     match key.code {
-                        KeyCode::Char('v') => app.mux.execute(TerrekCommand::SplitVertical)?,
-                        KeyCode::Char('h') => app.mux.execute(TerrekCommand::SplitHorizontal)?,
-                        KeyCode::Char('o') => app.mux.execute(TerrekCommand::NextPane)?,
-                        KeyCode::Char('x') => app.mux.execute(TerrekCommand::ClosePane)?,
+                        KeyCode::Char('v') =>
+                            app.mux.execute(TerrekCommand::SplitVertical)?,
+                        KeyCode::Char('h') =>
+                            app.mux.execute(TerrekCommand::SplitHorizontal)?,
+                        KeyCode::Char('o') =>
+                            app.mux.execute(TerrekCommand::NextPane)?,
+                        KeyCode::Char('x') =>
+                            app.mux.execute(TerrekCommand::ClosePane)?,
                         _ => {}
                     }
 
@@ -262,11 +282,15 @@ fn main() -> Result<()> {
                 }
 
                 if !app.handle_key(key)? {
-                    break Ok(());
+                    break;
                 }
             }
         }
 
+        // Now poll PTY
+        app.mux.poll()?;
         renderer::draw(&app.mux)?;
     }
+
+    Ok(())
 }
