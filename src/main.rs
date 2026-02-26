@@ -81,7 +81,7 @@ impl App {
     fn new() -> Result<Self> {
         let context = Arc::new(Mutex::new(ContextState::new()));
 
-        // Specify type for unbounded channel
+      
         let (ai_tx, ai_rx): (CbSender<String>, CbReceiver<String>) = unbounded();
 
         let engine = Arc::new(Mutex::new(SuggestionEngine {
@@ -96,7 +96,7 @@ impl App {
             ai_cache: vec![],
         }));
 
-        // Spawn AI worker thread
+       
         let engine_clone = engine.clone();
         let context_clone = context.clone();
         thread::spawn(move || {
@@ -137,7 +137,7 @@ impl App {
 }
     fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
-            // Enter Terrek mode
+            
             KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.mode = Mode::Terrek;
                 self.terrek_buffer.clear();
@@ -232,7 +232,7 @@ fn main() -> Result<()> {
         if event::poll(Duration::from_millis(10))? {
             if let Event::Key(key) = event::read()? {
 
-                // Prefix key
+               
                 if key.code == KeyCode::Char('m') && key.modifiers.contains(KeyModifiers::CONTROL) {
                     app.mux_prefix = true;
                     continue;
