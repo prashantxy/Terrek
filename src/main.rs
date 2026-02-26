@@ -95,7 +95,7 @@ impl App {
             history: vec![],
             ai_cache: vec![],
         }));
-
+   
        
         let engine_clone = engine.clone();
         let context_clone = context.clone();
