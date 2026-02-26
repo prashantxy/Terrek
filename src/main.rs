@@ -134,7 +134,7 @@ impl App {
             mux_prefix: false,
         })
     }
-}
+
     fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
             
