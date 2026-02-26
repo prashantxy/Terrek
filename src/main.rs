@@ -136,67 +136,76 @@ impl App {
     }
 
     fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
-        match key.code {
-            
-            KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.mode = Mode::Terrek;
-                self.terrek_buffer.clear();
-                println!("\n-- TERREK MODE --");
-            }
-
-            KeyCode::Char(c) => match self.mode {
+    match key.code {
+        // 🔥 Toggle Terrek Mode
+        KeyCode::Char('t') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            match self.mode {
                 Mode::Shell => {
-                    self.shell_buffer.push(c);
-                    self.mux.send_key(key)?;
-                }
-                Mode::Terrek => {
-                    self.terrek_buffer.push(c);
-                    self.ai_tx.send(self.terrek_buffer.clone()).ok();
-                    self.draw_prompt();
-                }
-            },
-
-            KeyCode::Backspace => match self.mode {
-                Mode::Shell => {
-                    self.shell_buffer.pop();
-                    self.mux.send_key(key)?;
-                }
-                Mode::Terrek => {
-                    self.terrek_buffer.pop();
-                    self.draw_prompt();
-                }
-            },
-
-            KeyCode::Enter => match self.mode {
-                Mode::Shell => {
-                    self.mux.send_key(key)?;
-                    self.shell_buffer.clear();
-                }
-                Mode::Terrek => {
-                    println!();
-                    let input = self.terrek_buffer.trim();
-
-                    if input.starts_with("terrek ") {
-                        let stripped = input.trim_start_matches("terrek ").trim();
-                        let ctx = self.context.lock().unwrap();
-                        let action = handle_command(&ctx, stripped)?;
-
-                        let TerrekAction::Output(text) = action;
-                        println!("[Terrek] {}", text);
-                    }
-
+                    self.mode = Mode::Terrek;
                     self.terrek_buffer.clear();
-                    self.mode = Mode::Shell;
+                    println!("\n-- TERREK MODE ENABLED --");
                 }
-            },
-
-            KeyCode::Esc => return Ok(false),
-
-            _ => {}
+                Mode::Terrek => {
+                    self.mode = Mode::Shell;
+                    println!("\n-- SHELL MODE ENABLED --");
+                }
+            }
+            return Ok(true);
         }
 
-        Ok(true)
+        KeyCode::Char(c) => match self.mode {
+            Mode::Shell => {
+                self.shell_buffer.push(c);
+                self.mux.send_key(key)?;
+            }
+            Mode::Terrek => {
+                self.terrek_buffer.push(c);
+                self.ai_tx.send(self.terrek_buffer.clone()).ok();
+                self.draw_prompt();
+            }
+        },
+
+        KeyCode::Backspace => match self.mode {
+            Mode::Shell => {
+                self.shell_buffer.pop();
+                self.mux.send_key(key)?;
+            }
+            Mode::Terrek => {
+                self.terrek_buffer.pop();
+                self.draw_prompt();
+            }
+        },
+
+        KeyCode::Enter => match self.mode {
+            Mode::Shell => {
+                self.mux.send_key(key)?;
+                self.shell_buffer.clear();
+            }
+            Mode::Terrek => {
+                println!();
+                let input = self.terrek_buffer.trim();
+
+                if input.starts_with("terrek ") {
+                    let stripped = input.trim_start_matches("terrek ").trim();
+                    let ctx = self.context.lock().unwrap();
+                    let action = handle_command(&ctx, stripped)?;
+
+                    let TerrekAction::Output(text) = action;
+                    println!("[Terrek] {}", text);
+                }
+
+                self.terrek_buffer.clear();
+                self.draw_prompt(); // 🔥 stay in Terrek mode
+            }
+        },
+
+        KeyCode::Esc => return Ok(false),
+
+        _ => {}
     }
+
+    Ok(true)
+}
 
     fn draw_prompt(&self) {
         let suggestions = {
