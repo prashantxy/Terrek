@@ -23,8 +23,9 @@ impl InputHandler {
         mux: &mut Multiplexer,
     ) -> Result<()> {
 
+        eprintln!("Key event received: {:?}", key);
         if self.prefix_mode {
-
+            eprintln!("Prefix mode active, handling command...");
             match key.code {
                 KeyCode::Char('v') => {
                     mux.execute(TerrekCommand::SplitVertical)?;
@@ -42,15 +43,18 @@ impl InputHandler {
                     mux.execute(TerrekCommand::NewWindow)?;
                 }
                 KeyCode::Esc => {
+                    eprintln!("Esc pressed, cancelling prefix mode.");
                     // Cancel prefix
                 }
                 _ => {
+                    eprintln!("Unknown prefix command: {:?} -> keeping prefix active.", key.code);
                     // Unknown prefix command → keep prefix active
                     return Ok(());
                 }
             }
 
             self.prefix_mode = false;
+            eprintln!("Prefix mode deactivated.");
             return Ok(());
         }
 
@@ -58,10 +62,12 @@ impl InputHandler {
             && key.modifiers.contains(KeyModifiers::CONTROL)
         {
             self.prefix_mode = true;
+            eprintln!("Ctrl+T detected, prefix mode activated.");
             return Ok(());
         }
 
         mux.send_input_to_active(key)?;
+
 
         Ok(())
     }
