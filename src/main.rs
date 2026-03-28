@@ -72,6 +72,8 @@ impl SuggestionEngine {
     }
 }
 
+
+
 struct App {
     mode: Mode,
     shell_buffer: String,
