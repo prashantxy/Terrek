@@ -1,7 +1,7 @@
-use anyhow::Result;
-use crate::context::ContextState;
 use crate::ai::gemini::ask_gemini;
 use crate::config::load_config;
+use crate::context::ContextState;
+use anyhow::Result;
 
 pub fn maybe_trigger_ai(context: &ContextState) -> Result<()> {
     let config = load_config();

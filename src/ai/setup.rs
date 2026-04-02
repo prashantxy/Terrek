@@ -1,8 +1,8 @@
-use std::io::{self, Write};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use scopeguard::defer;
+use std::io::{self, Write};
 
-use crate::config::{save_config, Config, config_exists};
+use crate::config::{Config, config_exists, save_config};
 
 pub fn setup() -> anyhow::Result<()> {
     if config_exists() {
@@ -34,7 +34,6 @@ pub fn setup() -> anyhow::Result<()> {
 
     save_config(&cfg)?;
 
-   
     if config_exists() {
         println!("\n[Terrek] Configuration successful. config.json created.\n");
     } else {

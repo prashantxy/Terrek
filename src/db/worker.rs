@@ -1,7 +1,7 @@
-use std::sync::mpsc::{channel, Sender};
+use std::sync::mpsc::{Sender, channel};
 use std::thread;
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 #[derive(Debug)]
 pub enum DbEvent {

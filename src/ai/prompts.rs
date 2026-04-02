@@ -1,16 +1,14 @@
 use crate::context::ContextState;
 
-pub fn build_gemini_prompt(
-    context: &ContextState,
-    user_input: &str,
-) -> String {
-
-    let project_root = context.project_root
+pub fn build_gemini_prompt(context: &ContextState, user_input: &str) -> String {
+    let project_root = context
+        .project_root
         .as_ref()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "None".to_string());
 
-    let git_branch = context.git_branch
+    let git_branch = context
+        .git_branch
         .clone()
         .unwrap_or_else(|| "None".to_string());
 
@@ -32,7 +30,8 @@ pub fn build_gemini_prompt(
     let recent_commands = if context.last_commands.is_empty() {
         "None".to_string()
     } else {
-        context.last_commands
+        context
+            .last_commands
             .iter()
             .rev()
             .take(5)
@@ -48,7 +47,8 @@ pub fn build_gemini_prompt(
         ""
     };
 
-    format!(r#"
+    format!(
+        r#"
 You are Terrek AI — an expert terminal assistant embedded inside a contextual shell.
 
 System Context:

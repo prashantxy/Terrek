@@ -21,7 +21,6 @@ fn default_provider() -> String {
     "gemini".to_string()
 }
 
-
 fn config_path() -> PathBuf {
     let mut path = dirs::config_dir().expect("Cannot find config directory");
     path.push("terrek");

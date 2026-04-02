@@ -10,13 +10,7 @@ pub fn get_history(limit: i64) -> Result<Vec<(String, String, i64)>> {
          LIMIT ?1",
     )?;
 
-    let rows = stmt.query_map([limit], |row| {
-        Ok((
-            row.get(0)?,
-            row.get(1)?,
-            row.get(2)?,
-        ))
-    })?;
+    let rows = stmt.query_map([limit], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
 
     Ok(rows.filter_map(|r| r.ok()).collect())
 }
@@ -33,13 +27,7 @@ pub fn search_history(keyword: &str) -> Result<Vec<(String, String, i64)>> {
 
     let pattern = format!("%{}%", keyword);
 
-    let rows = stmt.query_map([pattern], |row| {
-        Ok((
-            row.get(0)?,
-            row.get(1)?,
-            row.get(2)?,
-        ))
-    })?;
+    let rows = stmt.query_map([pattern], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
 
     Ok(rows.filter_map(|r| r.ok()).collect())
 }

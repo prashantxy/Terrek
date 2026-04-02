@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use reqwest::blocking::Client;
 use serde_json::json;
 
@@ -19,11 +19,7 @@ fn get_key() -> Result<String> {
     Err(anyhow!("Run `terrek ai setup` first"))
 }
 
-pub fn ask_gemini(
-    context: &ContextState,
-    user_input: &str,
-) -> Result<String> {
-
+pub fn ask_gemini(context: &ContextState, user_input: &str) -> Result<String> {
     let key = get_key()?;
 
     let final_input = if user_input.trim().is_empty() {
@@ -51,9 +47,7 @@ pub fn ask_gemini(
 
     let client = Client::new();
 
-    let response = client.post(&url)
-        .json(&body)
-        .send()?;
+    let response = client.post(&url).json(&body).send()?;
 
     if !response.status().is_success() {
         return Err(anyhow!(
