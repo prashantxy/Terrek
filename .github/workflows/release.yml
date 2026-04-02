@@ -12,12 +12,14 @@ jobs:
   build:
     name: Build Release
     runs-on: ${{ matrix.os }}
+
     strategy:
       matrix:
         os: [macos-latest, ubuntu-latest, windows-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -25,16 +27,30 @@ jobs:
       - name: Build
         run: cargo build --release
 
-      - name: Prepare binary
+      # Debug step 
+      - name: Debug build output
+        run: |
+          echo "Listing target/release:"
+          ls -R target || dir target
         shell: bash
+
+      # Unix (Linux + macOS)
+      - name: Prepare binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p release
+          cp target/release/terrek release/terrek-${{ matrix.os }}
+          chmod +x release/terrek-${{ matrix.os }}
+
+      # Windows (PowerShell)
+      - name: Prepare binary (Windows)
+        if: runner.os == 'Windows'
         run: |
           mkdir release
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            cp target/release/terrek.exe release/terrek-${{ matrix.os }}.exe
-          else
-            cp target/release/terrek release/terrek-${{ matrix.os }}
-          fi
+          Copy-Item target/release/terrek.exe release/terrek-${{ matrix.os }}.exe
+        shell: pwsh
 
+      #  Upload release assets
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
