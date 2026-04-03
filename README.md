@@ -39,18 +39,19 @@ You are in SHELL session. Press Ctrl+T for TERREK mode.
 
 -- TERREK MODE --
 [Terrek] > terrek ai analyze my project
-[Terrek AI] 🔍 Detected provider: OpenAI
+[Terrek AI] terrek help
+[Terrek AI] "and compatible with all other terminals"
 [Terrek AI] ...
 ```
 
 ---
 
-## 🚀 Installation
+##  Installation
 
 ### One-line install
 
 ```bash
-curl -fsSL https://terrek.dev/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/prashantxy/Terrek/main/install.sh | bash
 ```
 
 ### Manual
