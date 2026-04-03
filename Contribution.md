@@ -69,9 +69,8 @@ src/
   core/
   context/
   session_manager/windows
-  ui/           # terminal UI (ratatui)
-  config/       # configuration handling
-  app/          # core logic
+  ui/          
+  config/       
 ```
 
 ---
