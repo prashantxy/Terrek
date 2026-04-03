@@ -13,7 +13,7 @@ pub fn setup() -> anyhow::Result<()> {
     disable_raw_mode()?;
     defer! { let _ = enable_raw_mode(); }
 
-    println!("\nPaste your Gemini API key:");
+    println!("\nPaste your  API key:");
     print!("> ");
     io::stdout().flush()?;
 
