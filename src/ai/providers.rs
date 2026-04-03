@@ -6,8 +6,13 @@ pub enum provider {
 }
 impl provider{
     pub fn from_str(s: &str)->self{
-        match s {
-            "openai" => Self::OpenAI,
+        match Provider {
+          Provider::OpenAI =>{
+            let key = std::env::var("OPENAI_API_KEY")
+            .expect("Missing OPENAI_API_KEY");
+
+             Box::new(OpenAI { api_key: key })
+          }
             "claude" => Self::Claude,
             "gemini" => Self:: Gemini,
             "ollama" => Self::Ollama,
@@ -15,3 +20,4 @@ impl provider{
         }
     }
 }
+
