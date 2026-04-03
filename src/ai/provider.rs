@@ -1,23 +1,21 @@
-pub enum provider {
+// src/ai/provider.rs
+
+#[derive(Debug, Clone)]
+pub enum Provider {
     OpenAI,
     Claude,
     Gemini,
     Ollama,
 }
-impl provider{
-    pub fn from_str(s: &str)->self{
-        match Provider {
-          Provider::OpenAI =>{
-            let key = std::env::var("OPENAI_API_KEY")
-            .expect("Missing OPENAI_API_KEY");
 
-             Box::new(OpenAI { api_key: key })
-          }
+impl Provider {
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "openai" => Self::OpenAI,
             "claude" => Self::Claude,
-            "gemini" => Self:: Gemini,
+            "gemini" => Self::Gemini,
             "ollama" => Self::Ollama,
-            _Self::OpenAI
+            _ => Self::OpenAI,
         }
     }
 }
-

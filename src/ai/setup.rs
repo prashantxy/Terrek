@@ -41,8 +41,8 @@ pub fn setup() -> anyhow::Result<()> {
     let provider = detect_provider(&key);
 
     if provider == "unknown" {
-        println!("\n[Terrek] ❌ Could not detect provider.");
-        println!("Try specifying manually later.\n");
+        println!("\n[Terrek] Could not detect provider.");
+        println!("You can change it manually later.\n");
     } else {
         println!("\n[Terrek] 🔍 Detected provider: {}", provider);
     }
@@ -58,7 +58,7 @@ pub fn setup() -> anyhow::Result<()> {
     if config_exists() {
         println!("\n[Terrek] Configuration successful.\n");
     } else {
-        println!("\n[Terrek]  ERROR: config not created.\n");
+        println!("\n[Terrek] ERROR: config not created.\n");
     }
 
     Ok(())

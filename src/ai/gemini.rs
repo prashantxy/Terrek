@@ -9,7 +9,7 @@ use crate::ai::prompts::build_gemini_prompt;
 
 fn get_key() -> Result<String> {
     if let Some(cnf) = load_config() {
-        return Ok(cnf.gemini_api_key);
+        return Ok(cnf.api_key);
     }
 
     if let Ok(env) = std::env::var("GEMINI_API_KEY") {

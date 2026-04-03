@@ -6,19 +6,24 @@ fn default_true() -> bool {
     true
 }
 
+fn default_provider() -> String {
+    "gemini".to_string()
+}
+
+fn default_api_key() -> String {
+    "".to_string()
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     #[serde(default = "default_provider")]
     pub provider: String,
 
-    pub gemini_api_key: String,
+    #[serde(default = "default_api_key")]
+    pub api_key: String,
 
     #[serde(default = "default_true")]
     pub auto_ai_on_error: bool,
-}
-
-fn default_provider() -> String {
-    "gemini".to_string()
 }
 
 fn config_path() -> PathBuf {
@@ -40,6 +45,7 @@ pub fn load_config() -> Option<Config> {
     let data = fs::read_to_string(path).ok()?;
     serde_json::from_str(&data).ok()
 }
+
 pub fn config_exists() -> bool {
     config_path().exists()
 }
