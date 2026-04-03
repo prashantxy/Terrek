@@ -2,6 +2,6 @@ pub mod auto;
 pub mod gemini;
 pub mod prompts;
 pub mod setup;
-pub mod provider;
+pub mod providers;
 
 
