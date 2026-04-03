@@ -2,7 +2,7 @@
 
 > A terminal-native workflow engine with built-in AI. 
 
-If you wanna discuss architecture then reach here :- 
+If you wanna discuss architecture then reach here :- https://x.com/pdubey1924 
 
 Terrek transforms your terminal into a **programmable, intelligent environment** — combining TUI, automation, and multi-provider AI into a single system.
 
