@@ -14,7 +14,7 @@ impl OpenAi{
                 }
             ]
         });
-
+ 
         let res = client
            .post("https://api.openai.com/v1/chat/completions")
             .header("Authorization", format!("Bearer {}", self.api_key))
@@ -28,7 +28,7 @@ impl OpenAi{
          let output = json["choices"[0]["message"]["content"]]
          .as_str()
          .unwrap_or("No response");
-
+ 
          OK(output.to_string)
     }
 }
