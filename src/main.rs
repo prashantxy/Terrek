@@ -63,29 +63,40 @@ impl SuggestionEngine {
     }
 }
 
-// 🔥 AI rate limiter
-static mut LAST_AI_CALL: Option<Instant> = None;
+// ✅ Safe AI rate limiter
+struct AiLimiter {
+    last_call: Mutex<Option<Instant>>,
+}
 
-fn can_call_ai() -> bool {
-    let now = Instant::now();
+impl AiLimiter {
+    fn new() -> Self {
+        Self {
+            last_call: Mutex::new(None),
+        }
+    }
 
-    unsafe {
-        match LAST_AI_CALL {
-            Some(last) if now.duration_since(last) < Duration::from_secs(10) => false,
+    fn can_call(&self) -> bool {
+        let mut last = self.last_call.lock().unwrap();
+        let now = Instant::now();
+
+        match *last {
+            Some(prev) if now.duration_since(prev) < Duration::from_secs(10) => false,
             _ => {
-                LAST_AI_CALL = Some(now);
+                *last = Some(now);
                 true
             }
         }
     }
 }
 
-// 🔥 Error detection
+// 🔥 Error detection (improved)
 fn is_error(exit_code: i32, output: &str) -> bool {
+    let out = output.to_lowercase();
     exit_code != 0
-        || output.contains("error")
-        || output.contains("not found")
-        || output.contains("failed")
+        || out.contains("error")
+        || out.contains("not found")
+        || out.contains("command not found")
+        || out.contains("failed")
 }
 
 // 🔥 Extract exit code
@@ -102,7 +113,7 @@ fn extract_exit_code(buffer: &str) -> Option<(i32, String)> {
     None
 }
 
-// 🔥 AI worker (suggestions)
+// 🔥 AI worker
 fn start_ai_worker(
     rx: CbReceiver<String>,
     tx: CbSender<Vec<String>>,
@@ -129,17 +140,14 @@ Return only command list.",
 
             let ctx = context.lock().unwrap();
 
-            match ai::gemini::ask_gemini(&ctx, &prompt) {
-                Ok(resp) => {
-                    let suggestions = resp
-                        .lines()
-                        .map(|l| l.trim().to_string())
-                        .filter(|l| !l.is_empty())
-                        .collect::<Vec<_>>();
+            if let Ok(resp) = ai::gemini::ask_gemini(&ctx, &prompt) {
+                let suggestions = resp
+                    .lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|l| !l.is_empty())
+                    .collect::<Vec<_>>();
 
-                    tx.send(suggestions).ok();
-                }
-                Err(_) => {}
+                tx.send(suggestions).ok();
             }
         }
     });
@@ -174,6 +182,7 @@ fn main() -> anyhow::Result<()> {
     let _session_id = Uuid::new_v4().to_string();
 
     let context = Arc::new(Mutex::new(ContextState::new()));
+    let ai_limiter = Arc::new(AiLimiter::new());
 
     let (ai_tx, ai_rx) = unbounded();
     let (ai_out_tx, ai_out_rx) = unbounded();
@@ -192,6 +201,7 @@ fn main() -> anyhow::Result<()> {
 
     start_ai_worker(ai_rx, ai_out_tx, context.clone());
 
+    // ✅ FIXED PTY SHELL
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: 24,
@@ -201,7 +211,15 @@ fn main() -> anyhow::Result<()> {
     })?;
 
     let shell = std::env::var("SHELL").unwrap_or("/bin/bash".to_string());
-    let cmd = CommandBuilder::new(shell);
+
+    let mut cmd = CommandBuilder::new(shell);
+    cmd.arg("-i"); // 🔥 interactive
+    cmd.env("TERM", "xterm-256color");
+    cmd.env(
+        "PATH",
+        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    );
+
     let _child = pair.slave.spawn_command(cmd)?;
 
     let mut reader = pair.master.try_clone_reader()?;
@@ -248,7 +266,7 @@ fn main() -> anyhow::Result<()> {
                 if is_error(code, &clean_output) {
                     println!("\n[Terrek] ⚠️ Command failed (code {})", code);
 
-                    if can_call_ai() {
+                    if ai_limiter.can_call() {
                         let ctx = context.lock().unwrap();
 
                         let trimmed = clean_output.chars().take(800).collect::<String>();
@@ -264,12 +282,8 @@ Suggest a fix command only.",
                         );
 
                         match ai::gemini::ask_gemini(&ctx, &prompt) {
-                            Ok(resp) => {
-                                println!("\n[Terrek AI Suggestion]:\n{}", resp);
-                            }
-                            Err(_) => {
-                                println!("\n[Terrek] AI failed");
-                            }
+                            Ok(resp) => println!("\n[Terrek AI Suggestion]:\n{}", resp),
+                            Err(_) => println!("\n[Terrek] AI failed"),
                         }
                     }
                 }
@@ -308,16 +322,13 @@ Suggest a fix command only.",
                     Mode::Shell => {
                         shell_input_buffer.pop();
                         print!("\x08 \x08");
-                        std::io::stdout().flush().ok();
                     }
                     Mode::Terrek => {
                         terrek_buffer.pop();
-
                         let suggestions = {
                             let eng = engine.lock().unwrap();
                             eng.suggest(&terrek_buffer)
                         };
-
                         draw_prompt(&terrek_buffer, suggestions.first());
                     }
                 },
@@ -331,14 +342,14 @@ Suggest a fix command only.",
 
                         if !command.is_empty() {
                             let wrapped =
-                                format!("{}; echo __TERREK_EXIT__$?\n", command);
+                                format!("{}; echo __TERREK_EXIT__$?\r", command);
                             writer.write_all(wrapped.as_bytes())?;
                             writer.flush()?;
 
                             let mut ctx = context.lock().unwrap();
                             ctx.add_command(command.to_string());
                         } else {
-                            writer.write_all(b"\n")?;
+                            writer.write_all(b"\r")?;
                             writer.flush()?;
                         }
 
