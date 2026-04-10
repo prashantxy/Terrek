@@ -68,7 +68,6 @@ static mut LAST_AI_CALL: Option<Instant> = None;
 
 fn can_call_ai() -> bool {
     let now = Instant::now();
-
     unsafe {
         match LAST_AI_CALL {
             Some(last) if now.duration_since(last) < Duration::from_secs(10) => false,
@@ -83,7 +82,7 @@ fn can_call_ai() -> bool {
 // 🔥 Error detection
 fn is_error(exit_code: i32, output: &str) -> bool {
     exit_code != 0
-        || output.contains("error")
+        || output.to_lowercase().contains("error")
         || output.contains("not found")
         || output.contains("failed")
 }
@@ -92,7 +91,6 @@ fn is_error(exit_code: i32, output: &str) -> bool {
 fn extract_exit_code(buffer: &str) -> Option<(i32, String)> {
     if let Some(idx) = buffer.find("__TERREK_EXIT__") {
         let (before, after) = buffer.split_at(idx);
-
         if let Some(code_str) = after.split("__TERREK_EXIT__").nth(1) {
             if let Ok(code) = code_str.trim().parse::<i32>() {
                 return Some((code, before.to_string()));
@@ -102,7 +100,7 @@ fn extract_exit_code(buffer: &str) -> Option<(i32, String)> {
     None
 }
 
-// 🔥 AI worker (suggestions)
+// 🔥 AI worker for suggestions
 fn start_ai_worker(
     rx: CbReceiver<String>,
     tx: CbSender<Vec<String>>,
@@ -120,10 +118,7 @@ fn start_ai_worker(
             thread::sleep(std::time::Duration::from_millis(400));
 
             let prompt = format!(
-                "You are a CLI suggestion engine.
-User typed: \"{}\"
-Suggest 5 possible Terrek commands.
-Return only command list.",
+                "You are a CLI suggestion engine.\nUser typed: \"{}\"\nSuggest 5 possible Terrek commands.\nReturn only the command list, one per line.",
                 input
             );
 
@@ -145,7 +140,7 @@ Return only command list.",
     });
 }
 
-// UI
+// UI Helpers
 fn draw_prompt(buf: &str, suggestion: Option<&String>) {
     print!("\r\x1B[K[Terrek] > {}", buf);
 
@@ -155,7 +150,6 @@ fn draw_prompt(buf: &str, suggestion: Option<&String>) {
             print!("\x1B[90m{}\x1B[0m", ghost);
         }
     }
-
     std::io::stdout().flush().ok();
 }
 
@@ -171,7 +165,6 @@ fn main() -> anyhow::Result<()> {
     });
 
     let _db_tx: Sender<DbEvent> = start_db_worker();
-    let _session_id = Uuid::new_v4().to_string();
 
     let context = Arc::new(Mutex::new(ContextState::new()));
 
@@ -185,6 +178,7 @@ fn main() -> anyhow::Result<()> {
             "terrek history".into(),
             "terrek ai".into(),
             "terrek exit".into(),
+            "terrek help".into(),
         ],
         history: vec![],
         ai_cache: vec![],
@@ -192,6 +186,7 @@ fn main() -> anyhow::Result<()> {
 
     start_ai_worker(ai_rx, ai_out_tx, context.clone());
 
+    // ==================== PTY SETUP ====================
     let pty_system = native_pty_system();
     let pair = pty_system.openpty(PtySize {
         rows: 24,
@@ -200,8 +195,12 @@ fn main() -> anyhow::Result<()> {
         pixel_height: 0,
     })?;
 
-    let shell = std::env::var("SHELL").unwrap_or("/bin/bash".to_string());
-    let cmd = CommandBuilder::new(shell);
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+
+    let mut cmd = CommandBuilder::new(&shell);
+    cmd.arg("-i");                    // Interactive shell
+    cmd.env("TERM", "xterm-256color");
+
     let _child = pair.slave.spawn_command(cmd)?;
 
     let mut reader = pair.master.try_clone_reader()?;
@@ -209,6 +208,7 @@ fn main() -> anyhow::Result<()> {
 
     let (out_tx, out_rx) = channel::<String>();
 
+    // Output reader thread
     thread::spawn(move || {
         let mut buffer = [0u8; 4096];
         loop {
@@ -223,19 +223,21 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
+    // ==================== Main Loop State ====================
     let mut mode = Mode::Shell;
-    let mut shell_input_buffer = String::new();
     let mut terrek_buffer = String::new();
     let mut current_output = String::new();
 
-    println!("You are in SHELL session. Press Ctrl+T for TERREK mode.");
+    println!("Terrek Shell started. Press Ctrl+T to enter TERREK mode.");
 
     loop {
+        // Handle AI suggestions
         if let Ok(ai_suggestions) = ai_out_rx.try_recv() {
             let mut eng = engine.lock().unwrap();
             eng.ai_cache = ai_suggestions;
         }
 
+        // Handle shell output + AI error suggestions
         while let Ok(text) = out_rx.try_recv() {
             print!("{}", text);
             std::io::stdout().flush().ok();
@@ -245,51 +247,49 @@ fn main() -> anyhow::Result<()> {
             if let Some((code, clean_output)) = extract_exit_code(&current_output) {
                 current_output.clear();
 
-                if is_error(code, &clean_output) {
-                    println!("\n[Terrek] ⚠️ Command failed (code {})", code);
+                if is_error(code, &clean_output) && can_call_ai() {
+                    let ctx = context.lock().unwrap();
+                    let trimmed = clean_output.chars().take(800).collect::<String>();
 
-                    if can_call_ai() {
-                        let ctx = context.lock().unwrap();
+                    let prompt = format!(
+                        "Command failed:\n{}\n\nSuggest only a fix command.",
+                        trimmed
+                    );
 
-                        let trimmed = clean_output.chars().take(800).collect::<String>();
-
-                        let prompt = format!(
-                            "Command failed in terminal.
-
-Output:
-{}
-
-Suggest a fix command only.",
-                            trimmed
-                        );
-
-                        match ai::gemini::ask_gemini(&ctx, &prompt) {
-                            Ok(resp) => {
-                                println!("\n[Terrek AI Suggestion]:\n{}", resp);
-                            }
-                            Err(_) => {
-                                println!("\n[Terrek] AI failed");
-                            }
-                        }
+                    if let Ok(resp) = ai::gemini::ask_gemini(&ctx, &prompt) {
+                        println!("\n[Terrek AI Suggestion]:\n{}", resp);
                     }
                 }
             }
         }
 
+        // ==================== Keyboard Input Handling ====================
         if let Event::Key(KeyEvent { code, modifiers, .. }) = event::read()? {
             match code {
+                // Ctrl + T → Toggle between Shell and Terrek mode
                 KeyCode::Char('t') if modifiers.contains(KeyModifiers::CONTROL) => {
-                    mode = Mode::Terrek;
-                    terrek_buffer.clear();
-                    println!("\n-- TERREK MODE --");
-                    draw_prompt("", None);
+                    mode = match mode {
+                        Mode::Shell => Mode::Terrek,
+                        Mode::Terrek => Mode::Shell,
+                    };
+
+                    if let Mode::Terrek = mode {
+                        terrek_buffer.clear();
+                        println!("\n-- TERREK MODE --");
+                        println!("You can now run normal commands (ls, echo, cd...) or Terrek commands (terrek help, terrek ai...)");
+                        draw_prompt("", None);
+                    } else {
+                        println!("\n-- SHELL MODE --");
+                    }
+                    continue;
                 }
 
+                // Character input
                 KeyCode::Char(c) => match mode {
                     Mode::Shell => {
-                        shell_input_buffer.push(c);
-                        print!("{}", c);
-                        std::io::stdout().flush().ok();
+                        // Forward to real shell
+                        let _ = writer.write_all(&[c as u8]);
+                        let _ = writer.flush();
                     }
                     Mode::Terrek => {
                         terrek_buffer.push(c);
@@ -299,16 +299,15 @@ Suggest a fix command only.",
                             let eng = engine.lock().unwrap();
                             eng.suggest(&terrek_buffer)
                         };
-
                         draw_prompt(&terrek_buffer, suggestions.first());
                     }
                 },
 
+                // Backspace
                 KeyCode::Backspace => match mode {
                     Mode::Shell => {
-                        shell_input_buffer.pop();
-                        print!("\x08 \x08");
-                        std::io::stdout().flush().ok();
+                        let _ = writer.write_all(b"\x7f"); // DEL key for backspace
+                        let _ = writer.flush();
                     }
                     Mode::Terrek => {
                         terrek_buffer.pop();
@@ -317,46 +316,54 @@ Suggest a fix command only.",
                             let eng = engine.lock().unwrap();
                             eng.suggest(&terrek_buffer)
                         };
-
                         draw_prompt(&terrek_buffer, suggestions.first());
                     }
                 },
 
+                // Enter
                 KeyCode::Enter => match mode {
                     Mode::Shell => {
                         println!();
-                        current_output.clear();
-
-                        let command = shell_input_buffer.trim();
-
-                        if !command.is_empty() {
-                            let wrapped =
-                                format!("{}; echo __TERREK_EXIT__$?\n", command);
-                            writer.write_all(wrapped.as_bytes())?;
-                            writer.flush()?;
-
-                            let mut ctx = context.lock().unwrap();
-                            ctx.add_command(command.to_string());
-                        } else {
-                            writer.write_all(b"\n")?;
-                            writer.flush()?;
-                        }
-
-                        shell_input_buffer.clear();
+                        let _ = writer.write_all(b"\r\n");
+                        let _ = writer.flush();
                     }
 
                     Mode::Terrek => {
                         println!();
                         let input = terrek_buffer.trim();
 
-                        if input.starts_with("terrek ") {
-                            let stripped = input.trim_start_matches("terrek ").trim();
-                            let ctx = context.lock().unwrap();
-                            let action = handle_command(&ctx, stripped)?;
+                        if input.is_empty() {
+                            terrek_buffer.clear();
+                            draw_prompt("", None);
+                            continue;
+                        }
 
-                            if let TerrekAction::Output(text) = action {
-                                println!("[Terrek] {}", text);
+                        // ==================== MAIN LOGIC ====================
+                        if input.starts_with("terrek ") || input == "terrek" {
+                            // === TERREK COMMAND ===
+                            let stripped = if input == "terrek" {
+                                ""
+                            } else {
+                                input.trim_start_matches("terrek ").trim()
+                            };
+
+                            let ctx = context.lock().unwrap();
+                            match handle_command(&ctx, stripped) {
+                                Ok(TerrekAction::Output(text)) => {
+                                    println!("[Terrek] {}", text);
+                                }
+                                Err(e) => {
+                                    println!("[Terrek] Error: {}", e);
+                                }
                             }
+                        } else {
+                            // === NORMAL SHELL COMMAND (ls, echo, cd, etc.) ===
+                            let wrapped = format!("{}; echo __TERREK_EXIT__$?\r\n", input);
+                            let _ = writer.write_all(wrapped.as_bytes());
+                            let _ = writer.flush();
+
+                            let mut ctx = context.lock().unwrap();
+                            ctx.add_command(input.to_string());
                         }
 
                         terrek_buffer.clear();
@@ -364,13 +371,17 @@ Suggest a fix command only.",
                     }
                 },
 
+                // Esc → Exit Terrek mode or quit app
                 KeyCode::Esc => match mode {
                     Mode::Terrek => {
                         clear_prompt();
                         mode = Mode::Shell;
                         println!("\n-- SHELL MODE --");
                     }
-                    Mode::Shell => break Ok(()),
+                    Mode::Shell => {
+                        println!("\nExiting Terrek...");
+                        break Ok(());
+                    }
                 },
 
                 _ => {}
