@@ -1,11 +1,10 @@
-// src/terrek/mod.rs   (or wherever your command handler lives)
-
 use crate::ai::gemini::ask_gemini;
 use crate::ai::setup::setup as ai_setup;
 use crate::ai::provider::Provider;
 use crate::context::ContextState;
 use crate::db::history::{get_history, search_history};
-use crate::config::{load_config};
+use crate::config::load_config;
+
 use anyhow::Result;
 use chrono::{Local, TimeZone};
 use std::process::Command;
@@ -14,20 +13,20 @@ use std::fs;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
+
+
 pub enum TerrekAction {
     Output(String),
-    // You can later add variants like ClearScreen, SplitPane, etc.
 }
 
-fn capitalize(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        None => String::new(),
-        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-    }
+#[derive(Debug)]
+enum PostResult {
+    Api,
+    Fallback,
 }
 
-// ===================== APP FINDER =====================
+// ===================== UTILS =====================
+
 fn find_app(input: &str) -> Option<String> {
     let matcher = SkimMatcherV2::default();
     let paths = ["/Applications", "/System/Applications"];
@@ -53,7 +52,6 @@ fn find_app(input: &str) -> Option<String> {
     best_match
 }
 
-// ===================== URL RESOLVER =====================
 fn resolve_url(input: &str) -> String {
     let input = input.trim().to_lowercase();
     let words: Vec<&str> = input.split_whitespace().collect();
@@ -100,9 +98,9 @@ fn resolve_url(input: &str) -> String {
     }
 }
 
-// ===================== MARKETING HELPERS =====================
+// ===================== X POSTING =====================
 
-fn post_to_x(message: &str, image_path: Option<&str>) -> Result<()> {
+fn post_to_x(message: &str, image_path: Option<&str>) -> Result<PostResult> {
     let mut cmd = Command::new("xmaster");
     cmd.arg("post").arg(message);
 
@@ -110,12 +108,52 @@ fn post_to_x(message: &str, image_path: Option<&str>) -> Result<()> {
         cmd.arg("--image").arg(img);
     }
 
-    let status = cmd.status()?;
-    if !status.success() {
-        anyhow::bail!("X posting failed. Run `cargo install xmaster` and `xmaster auth` first.");
+    match cmd.output() {
+        Ok(output) if output.status.success() => {
+            println!("🚀 Posted via API");
+            Ok(PostResult::Api)
+        }
+
+        Ok(output) => {
+            let err = String::from_utf8_lossy(&output.stderr).to_lowercase();
+
+            if err.contains("rate limit")
+                || err.contains("429")
+                || err.contains("payment")
+                || err.contains("unauthorized")
+                || err.contains("forbidden")
+            {
+                println!("⚠️ API issue → fallback triggered");
+                open_intent_fallback(message)?;
+                Ok(PostResult::Fallback)
+            } else {
+                anyhow::bail!("Post failed: {}", err);
+            }
+        }
+
+        Err(_) => {
+            println!("⚠️ xmaster missing → fallback");
+            open_intent_fallback(message)?;
+            Ok(PostResult::Fallback)
+        }
     }
+}
+
+fn open_intent_fallback(message: &str) -> Result<()> {
+    let encoded = urlencoding::encode(message);
+
+    let url = format!(
+        "https://twitter.com/intent/tweet?text={}",
+        encoded
+    );
+
+    Command::new("open").arg(&url).spawn()?;
+
+    println!("🌐 Opened browser fallback");
     Ok(())
 }
+
+// ===================== HELPERS =====================
 
 fn generate_announce_message() -> Result<String> {
     let output = Command::new("git")
@@ -125,11 +163,11 @@ fn generate_announce_message() -> Result<String> {
     let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
     if commit.is_empty() {
-        return Ok("🚀 Terrek just got even better!".to_string());
+        return Ok(" Terrek just got even better!".to_string());
     }
 
     Ok(format!(
-        "🚀 New update in Terrek!\n{}\n\nhttps://github.com/yourname/terrek",
+        " New update in Terrek!\n{}\n\nhttps://github.com/yourname/terrek",
         commit
     ))
 }
@@ -138,7 +176,7 @@ fn take_tmux_screenshot() -> Result<Option<String>> {
     let path = format!("/tmp/terrek-screenshot-{}.png", Local::now().timestamp());
 
     let status = Command::new("screencapture")
-        .args(["-x", "-u", "-w", &path])   // capture front window
+        .args(["-x", "-u", "-w", &path])
         .status()?;
 
     if status.success() && fs::metadata(&path).is_ok() {
@@ -148,7 +186,7 @@ fn take_tmux_screenshot() -> Result<Option<String>> {
     }
 }
 
-// ===================== MAIN HANDLER =====================
+
 
 pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction> {
     let parts: Vec<&str> = cmd.trim().split_whitespace().collect();
@@ -164,62 +202,48 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
 
         "clear" => "__CLEAR__".to_string(),
 
-        // ===================== MARKETING =====================
+       
         "post" => {
             if parts.len() < 2 {
-                return Ok(TerrekAction::Output("Usage: post \"Your message here\"".to_string()));
+                return Ok(TerrekAction::Output("Usage: post \"message\"".to_string()));
             }
+
             let message = parts[1..].join(" ");
+
             match post_to_x(&message, None) {
-                Ok(_) => format!("✅ Posted to X!\n{}", message),
-                Err(e) => format!("❌ Post failed: {}", e),
+                Ok(PostResult::Api) =>
+                    format!("🚀 Posted via API\n{}", message),
+
+                Ok(PostResult::Fallback) =>
+                    format!("🌐 Opened in browser (manual post)\n{}", message),
+
+                Err(e) =>
+                    format!("❌ Post failed: {}", e),
             }
         }
 
+       
         "announce" => {
-            let mut custom_msg = None;
-            let mut with_screenshot = false;
+            let message = generate_announce_message().unwrap_or_default();
 
-            let mut i = 1;
-            while i < parts.len() {
-                match parts[i] {
-                    "-m" | "--message" if i + 1 < parts.len() => {
-                        custom_msg = Some(parts[i + 1..].join(" "));
-                        break;
-                    }
-                    "-s" | "--screenshot" => with_screenshot = true,
-                    _ => {}
-                }
-                i += 1;
+            match post_to_x(&message, None) {
+                Ok(PostResult::Api) =>
+                    format!("🚀 Announced via API\n{}", message),
+
+                Ok(PostResult::Fallback) =>
+                    format!(" Opened browser for announcement\n{}", message),
+
+                Err(e) =>
+                    format!(" Failed to announce: {}", e),
             }
-
-            let message = custom_msg.unwrap_or_else(|| generate_announce_message().unwrap_or_default());
-
-            let result = if with_screenshot {
-                match take_tmux_screenshot() {
-                    Ok(Some(path)) => match post_to_x(&message, Some(&path)) {
-                        Ok(_) => format!("✅ Announced with screenshot!\n{}", message),
-                        Err(e) => format!("❌ Failed to post with screenshot: {}", e),
-                    },
-                    _ => match post_to_x(&message, None) {
-                        Ok(_) => format!("✅ Announced (screenshot skipped)\n{}", message),
-                        Err(e) => format!("❌ Failed to announce: {}", e),
-                    },
-                }
-            } else {
-                match post_to_x(&message, None) {
-                    Ok(_) => format!("✅ Announced on X!\n{}", message),
-                    Err(e) => format!("❌ Failed to announce: {}", e),
-                }
-            };
-            result
         }
 
-        // ===================== OPEN =====================
+       
         "open" => {
             if parts.len() < 2 {
-                return Ok(TerrekAction::Output("Usage: open <app | url | search term>".to_string()));
+                return Ok(TerrekAction::Output("Usage: open <app | url>".to_string()));
             }
+
             let input = parts[1..].join(" ").to_lowercase();
 
             if let Some(app_name) = find_app(&input) {
@@ -229,6 +253,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
 
             let url = resolve_url(&input);
             let _ = Command::new("open").arg(&url).spawn();
+
             format!("Opened: {}", url)
         }
 
@@ -236,33 +261,27 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
         "history" => {
             let history = get_history(10)?;
             let mut lines = Vec::new();
+
             for (c, _, ts) in history {
                 let time = Local.timestamp_opt(ts, 0).unwrap();
                 lines.push(format!("[{}] {}", time.format("%H:%M:%S"), c));
             }
-            lines.join("\n")
-        }
 
-        "last" => {
-            let history = get_history(1)?;
-            if let Some((c, out, ts)) = history.first() {
-                let time = Local.timestamp_opt(*ts, 0).unwrap();
-                format!("Last: {}\nTime: {}\nOutput:\n{}", c, time, out)
-            } else {
-                "No history yet.".to_string()
-            }
+            lines.join("\n")
         }
 
         "search" => {
             if parts.len() < 2 {
-                "Usage: search <keyword>".to_string()
+                "Usage: search <word>".to_string()
             } else {
                 let results = search_history(parts[1])?;
                 let mut lines = Vec::new();
+
                 for (c, _, ts) in results {
                     let time = Local.timestamp_opt(ts, 0).unwrap();
                     lines.push(format!("[{}] {}", time.format("%H:%M:%S"), c));
                 }
+
                 lines.join("\n")
             }
         }
@@ -270,15 +289,16 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
         // ===================== AI =====================
         "ai" => {
             if parts.len() < 2 {
-                return Ok(TerrekAction::Output("Usage: ai setup\nai <your question>".to_string()));
+                return Ok(TerrekAction::Output("Usage: ai setup | ai <q>".to_string()));
             }
 
-            if parts[1] == "setup" || parts[1] == "change-key" {
+            if parts[1] == "setup" {
                 ai_setup()?;
-                return Ok(TerrekAction::Output("AI setup completed.".into()));
+                return Ok(TerrekAction::Output("AI setup done.".into()));
             }
 
             let prompt = parts[1..].join(" ");
+
             let cfg = match load_config() {
                 Some(c) => c,
                 None => return Ok(TerrekAction::Output("Run `ai setup` first.".into())),
@@ -286,25 +306,15 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
 
             let reply = match Provider::from_str(&cfg.provider) {
                 Provider::Gemini => ask_gemini(context, &prompt)?,
-                _ => "Only Gemini is supported right now.".to_string(),
+                _ => "Only Gemini supported.".to_string(),
             };
 
             return Ok(TerrekAction::Output(reply));
         }
 
-        // ===================== HELP =====================
-        "help" | "?" => r#"Available commands inside Terrek:
+        "help" => "Commands: open, post, announce, ai, history, search".to_string(),
 
-  open <app-name | url | search>
-  ai <question> | ai setup
-  post "Your message"
-  announce [-s] [-m "custom text"]
-  history | last | search <word>
-  time | hello | clear
-  help"#
-            .to_string(),
-
-        _ => format!("Unknown command: '{}'. Type 'help' for available commands.", parts[0]),
+        _ => format!("Unknown command: {}", parts[0]),
     };
 
     Ok(TerrekAction::Output(output))
