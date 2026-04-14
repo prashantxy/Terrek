@@ -228,7 +228,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
 
             match post_to_x(&message, None) {
                 Ok(PostResult::Api) =>
-                    format!("🚀 Announced via API\n{}", message),
+                    format!(" Announced via API\n{}", message),
 
                 Ok(PostResult::Fallback) =>
                     format!(" Opened browser for announcement\n{}", message),
@@ -257,7 +257,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
             format!("Opened: {}", url)
         }
 
-        // ===================== HISTORY =====================
+     
         "history" => {
             let history = get_history(10)?;
             let mut lines = Vec::new();
@@ -286,7 +286,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
             }
         }
 
-        // ===================== AI =====================
+     
         "ai" => {
             if parts.len() < 2 {
                 return Ok(TerrekAction::Output("Usage: ai setup | ai <q>".to_string()));
