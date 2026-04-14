@@ -61,7 +61,7 @@ impl SuggestionEngine {
     }
 }
 
-// AI Rate Limiter
+
 static mut LAST_AI_CALL: Option<Instant> = None;
 
 fn can_call_ai() -> bool {
