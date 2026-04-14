@@ -161,7 +161,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
 
             let input = parts[1..].join(" ").to_lowercase();
 
-            // 🔥 Try app
+            
             if let Some(app_name) = find_app(&input) {
                 let _ = Command::new("open")
                     .arg("-a")
@@ -171,7 +171,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                 return Ok(TerrekAction::Output(format!("Opened app: {}", app_name)));
             }
 
-            // 🔥 Fallback → URL
+           
             let url = resolve_url(&input);
 
             let _ = Command::new("open")
@@ -181,7 +181,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
             format!("Opened: {}", url)
         }
 
-        // ===================== HISTORY =====================
+       
         "history" => {
             let history = get_history(10)?;
             let mut lines = Vec::new();
