@@ -7,6 +7,10 @@ use crate::config::{load_config, delete_config};
 use anyhow::Result;
 use chrono::{Local, TimeZone};
 use std::process::Command;
+use std::fs;
+
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 
 pub enum TerrekAction {
     Output(String),
@@ -17,6 +21,119 @@ fn capitalize(s: &str) -> String {
     match c.next() {
         None => String::new(),
         Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+    }
+}
+
+//
+// 🔥 DYNAMIC APP FINDER (fuzzy + system scan)
+//
+fn find_app(input: &str) -> Option<String> {
+    let matcher = SkimMatcherV2::default();
+    let paths = ["/Applications", "/System/Applications"];
+
+    let mut best_match = None;
+    let mut best_score = i64::MIN;
+
+    for dir in paths {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    let clean = name.replace(".app", "");
+
+                    if let Some(score) = matcher.fuzzy_match(&clean.to_lowercase(), input) {
+                        if score > best_score {
+                            best_score = score;
+                            best_match = Some(clean);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    best_match
+}
+
+//
+// 🔥 INSANE URL RESOLVER
+//
+fn resolve_url(input: &str) -> String {
+    let input = input.trim().to_lowercase();
+    let words: Vec<&str> = input.split_whitespace().collect();
+
+    if words.is_empty() {
+        return "https://www.google.com".to_string();
+    }
+
+    // Full URL
+    if input.starts_with("http://") || input.starts_with("https://") {
+        return input;
+    }
+
+    // Domain like google.com
+    if input.contains('.') && !input.contains(' ') {
+        return format!("https://{}", input);
+    }
+
+    let first = words[0];
+    let query = words[1..].join("+");
+
+    match first {
+        // YouTube
+        "youtube" | "yt" => {
+            if query.is_empty() {
+                "https://www.youtube.com".to_string()
+            } else {
+                format!("https://www.youtube.com/results?search_query={}", query)
+            }
+        }
+
+        // GitHub
+        "github" | "gh" => {
+            if query.is_empty() {
+                "https://github.com".to_string()
+            } else if words.len() == 2 {
+                format!("https://github.com/{}", words[1])
+            } else {
+                format!("https://github.com/search?q={}", query)
+            }
+        }
+
+        // StackOverflow
+        "stackoverflow" | "so" => {
+            format!("https://stackoverflow.com/search?q={}", input.replace(" ", "+"))
+        }
+
+        // Reddit
+        "reddit" => {
+            format!("https://www.reddit.com/search/?q={}", query)
+        }
+
+        // LeetCode
+        "leetcode" | "lc" => {
+            if query.is_empty() {
+                "https://leetcode.com".to_string()
+            } else {
+                format!("https://leetcode.com/problemset/?search={}", query)
+            }
+        }
+
+        // GFG
+        "gfg" => {
+            format!("https://www.geeksforgeeks.org/?s={}", query)
+        }
+
+        // Default
+        _ => {
+            if !input.contains(' ') {
+                format!("https://{}.com", input)
+            } else {
+                format!(
+                    "https://www.google.com/search?q={}",
+                    input.replace(" ", "+")
+                )
+            }
+        }
     }
 }
 
@@ -34,35 +151,37 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
 
         "clear" => "__CLEAR__".to_string(),
 
-       
+        // ===================== OPEN =====================
         "open" => {
             if parts.len() < 2 {
                 return Ok(TerrekAction::Output(
-                    "Usage: terrek open <Application Name>\n\nExamples:\n  terrek open Spotify\n  terrek open \"Visual Studio Code\"\n  terrek open Safari\n  terrek open Finder\n  terrek open Notes".to_string()
+                    "Usage: terrek open <app | url | search>".to_string()
                 ));
             }
 
-            let app_name = parts[1..].join(" ");
+            let input = parts[1..].join(" ").to_lowercase();
 
-            match Command::new("open")
-                .arg("-a")
-                .arg(&app_name)
-                .output()
-            {
-                Ok(output) => {
-                    if output.status.success() {
-                        format!("Opened: {}", app_name)
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                        format!("Failed to open '{}'\n{}", app_name, stderr)
-                    }
-                }
-                Err(e) => {
-                    format!("Error launching '{}': {}", app_name, e)
-                }
+            // 🔥 Try app
+            if let Some(app_name) = find_app(&input) {
+                let _ = Command::new("open")
+                    .arg("-a")
+                    .arg(&app_name)
+                    .spawn();
+
+                return Ok(TerrekAction::Output(format!("Opened app: {}", app_name)));
             }
+
+            // 🔥 Fallback → URL
+            let url = resolve_url(&input);
+
+            let _ = Command::new("open")
+                .arg(&url)
+                .spawn();
+
+            format!("Opened: {}", url)
         }
 
+        // ===================== HISTORY =====================
         "history" => {
             let history = get_history(10)?;
             let mut lines = Vec::new();
@@ -101,44 +220,18 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
             }
         }
 
+        // ===================== AI =====================
         "ai" => {
             if parts.len() < 2 {
                 return Ok(TerrekAction::Output(
-                    "Usage:\n  terrek ai setup\n  terrek ai change-key\n  terrek ai show-config\n  terrek ai remove-key\n  terrek ai <your question>".to_string(),
+                    "Usage:\n  terrek ai setup\n  terrek ai <question>".to_string(),
                 ));
             }
 
             match parts[1] {
                 "setup" | "change-key" => {
                     ai_setup()?;
-
-                    if let Some(cfg) = load_config() {
-                        let provider = capitalize(&cfg.provider);
-                        return Ok(TerrekAction::Output(format!(
-                            "{} API key saved successfully.",
-                            provider
-                        )));
-                    }
-
                     return Ok(TerrekAction::Output("API key saved successfully.".into()));
-                }
-
-                "show-config" => {
-                    if let Some(cfg) = load_config() {
-                        let preview = &cfg.api_key[..6.min(cfg.api_key.len())];
-                        let provider = capitalize(&cfg.provider);
-                        return Ok(TerrekAction::Output(format!(
-                            "Provider: {}\nKey: {}****",
-                            provider, preview
-                        )));
-                    } else {
-                        return Ok(TerrekAction::Output("No API key configured.".into()));
-                    }
-                }
-
-                "remove-key" => {
-                    delete_config()?;
-                    return Ok(TerrekAction::Output("API key removed successfully.".into()));
                 }
 
                 _ => {
@@ -148,7 +241,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                         Some(c) => c,
                         None => {
                             return Ok(TerrekAction::Output(
-                                "No config found. Run `terrek ai setup` first.".into(),
+                                "Run `terrek ai setup` first.".into(),
                             ))
                         }
                     };
@@ -156,13 +249,8 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                     let provider = Provider::from_str(&cfg.provider);
 
                     let reply = match provider {
-                        Provider::Gemini => match ask_gemini(context, &prompt) {
-                            Ok(r) => r,
-                            Err(e) => return Ok(TerrekAction::Output(format!("{}", e))),
-                        },
-                        Provider::OpenAI => "[OpenAI integration coming soon 🚧]".to_string(),
-                        Provider::Claude => "[Claude integration coming soon 🚧]".to_string(),
-                        Provider::Ollama => "[Ollama integration coming soon 🚧]".to_string(),
+                        Provider::Gemini => ask_gemini(context, &prompt)?,
+                        _ => "Provider not implemented yet.".to_string(),
                     };
 
                     return Ok(TerrekAction::Output(reply));
@@ -170,20 +258,15 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
             }
         }
 
+        // ===================== HELP =====================
         "help" => r#"Terrek Commands:
-  terrek hello
-  terrek time
-  terrek clear
-  terrek history
-  terrek last
-  terrek search <keyword>
+  terrek open <anything>
   terrek ai <question>
-  terrek ai setup
-  terrek open <App Name>
+  terrek history
   terrek help"#
             .to_string(),
 
-        _ => format!("Unknown command: '{}'. Type 'terrek help' for available commands.", parts[0]),
+        _ => format!("Unknown command: '{}'", parts[0]),
     };
 
     Ok(TerrekAction::Output(output))
