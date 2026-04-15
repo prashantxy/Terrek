@@ -13,3 +13,4 @@ pub fn get_git_branch() -> Option<String> {
         None
     }
 }
+ 
