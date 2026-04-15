@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use chrono::{Local, TimeZone};
 use std::process::Command;
 use std::fs;
-use std::io::{self, Read, Write};   // ← FIXED: Added `Read`
+use std::io::{self, Write};
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -89,9 +89,9 @@ fn send_email_native(to: &str, subject: &str, body: &str) -> Result<()> {
             let err_str = e.to_string().to_lowercase();
             println!("❌ Failed to send email: {}", e);
             if err_str.contains("535") || err_str.contains("authentication") {
-                println!("\n💡 TIP: Your App Password is likely incorrect or has spaces.");
+                println!("\n💡 TIP: Your Gmail App Password may be incorrect.");
                 println!("   Go to: https://myaccount.google.com/apppasswords");
-                println!("   Create a new one for 'Terrek CLI' and set it again.");
+                println!("   Create a new App Password for 'Terrek CLI'");
             }
             Err(e.into())
         }
@@ -212,19 +212,69 @@ fn open_intent_fallback(message: &str) -> Result<()> {
     Ok(())
 }
 
-// ===================== EMAIL HELPERS =====================
+// ===================== IMPROVED EMAIL HELPERS (Editor Mode) =====================
 
 fn compose_manual_email() -> Result<String> {
-    println!("📧 Compose your email (multi-line supported). Press Ctrl+D when done:\n");
-    let mut body = String::new();
-    io::stdin().read_to_string(&mut body)?;   // Now works because Read is imported
+    let tmp_path = "/tmp/terrek-email-manual.txt";
+
+    let template = "\
+# Write your email body below.
+# Lines starting with '#' will be ignored.
+# Save and close the editor when finished.\n\n";
+
+    fs::write(tmp_path, template)?;
+
+    println!("📧 Opening editor to compose your email...");
+
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+    let status = Command::new(&editor).arg(tmp_path).status()?;
+
+    if !status.success() {
+        return Err(anyhow::anyhow!("Editor exited with error"));
+    }
+
+    let content = fs::read_to_string(tmp_path)?;
+    let _ = fs::remove_file(tmp_path);
+
+    // Remove comment lines
+    let body: String = content
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     Ok(body.trim().to_string())
 }
 
 fn ask_for_email_context() -> Result<String> {
-    println!("🤖 Describe the email you want Gemini to write (be detailed):");
-    let mut context = String::new();
-    io::stdin().read_to_string(&mut context)?;   // Fixed here too
+    let tmp_path = "/tmp/terrek-email-context.txt";
+
+    let template = "\
+# Describe the email you want Gemini to write.
+# Include tone, key points, purpose, recipient details, etc.
+# Be detailed for better results.
+# Save and close the editor when done.\n\n";
+
+    fs::write(tmp_path, template)?;
+
+    println!("🤖 Opening editor to describe the email for Gemini...");
+
+    let editor = std::env::var("EDITOR").unwrap_or_else(|_| "nano".to_string());
+    let status = Command::new(&editor).arg(tmp_path).status()?;
+
+    if !status.success() {
+        return Err(anyhow::anyhow!("Editor exited with error"));
+    }
+
+    let content = fs::read_to_string(tmp_path)?;
+    let _ = fs::remove_file(tmp_path);
+
+    let context: String = content
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
+
     Ok(context.trim().to_string())
 }
 
@@ -374,7 +424,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                 "manual" => {
                     let body = compose_manual_email()?;
                     if body.is_empty() {
-                        "Email body empty. Cancelled.".to_string()
+                        "Email body was empty. Cancelled.".to_string()
                     } else {
                         match send_email_native(&to, &subject, &body) {
                             Ok(_) => format!("📧 Manual email sent to {}", to),

@@ -22,12 +22,11 @@ impl Window {
         }
     }
 
-    /// Safe active pane access
+   
     pub fn active_pane_mut(&mut self) -> Option<&mut Pane> {
         self.panes.get_mut(self.active_pane)
     }
 
-    /// Send keyboard input to active pane
     pub fn send_key(&mut self, key: KeyEvent) -> Result<()> {
         if let Some(pane) = self.active_pane_mut() {
             match key.code {
