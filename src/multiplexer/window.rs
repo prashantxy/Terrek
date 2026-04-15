@@ -83,7 +83,7 @@ impl Window {
         if self.active_pane >= self.panes.len() {
             self.active_pane = self.panes.len() - 1;
         }
-    }
+    }te
 
     /// Resize all panes equally (temporary simple layout)
     pub fn resize_all(&mut self, rows: u16, cols: u16) -> Result<()> {
