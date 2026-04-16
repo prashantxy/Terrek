@@ -87,13 +87,13 @@ fn send_email_native(to: &str, subject: &str, body: &str) -> Result<()> {
 
     match mailer.send(&email) {
         Ok(_) => {
-            println!("✅ Email sent successfully to {}", to);
+            println!(" Email sent successfully to {}", to);
             Ok(())
         }
         Err(e) => {
             println!("❌ Failed to send email: {}", e);
             if e.to_string().contains("535") || e.to_string().contains("authentication") {
-                println!("\n💡 TIP: Regenerate your Gmail App Password at https://myaccount.google.com/apppasswords");
+                println!("\n TIP: Regenerate your Gmail App Password at https://myaccount.google.com/apppasswords");
             }
             Err(e.into())
         }
@@ -253,7 +253,7 @@ fn post_to_x(message: &str, image_path: Option<&str>) -> Result<PostResult> {
         }
         Ok(output) => {
             let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
-            println!("⚠️ X Post failed via API");
+            println!(" X Post failed via API");
 
             if stderr.contains("402") || stderr.contains("payment") || stderr.contains("credits") {
                 println!("💰 No credits remaining in xmaster account.");
@@ -266,7 +266,7 @@ fn post_to_x(message: &str, image_path: Option<&str>) -> Result<PostResult> {
             }
         }
         Err(_) => {
-            println!("⚠️ xmaster not found or failed to run.");
+            println!(" xmaster not found or failed to run.");
             println!("   Opening browser fallback...");
             open_intent_fallback(message)?;
             Ok(PostResult::Fallback)
@@ -284,7 +284,7 @@ fn open_intent_fallback(message: &str) -> Result<()> {
     let status = Command::new("open").arg(&url).status();
 
     if status.is_ok() && status.unwrap().success() {
-        println!("✅ Browser opened. You can now post manually.");
+        println!(" Browser opened. You can now post manually.");
         Ok(())
     } else {
         // Alternative method
@@ -292,7 +292,7 @@ fn open_intent_fallback(message: &str) -> Result<()> {
             .arg("-c")
             .arg(format!("open '{}'", url))
             .status();
-        println!("✅ Browser should now be open.");
+        println!(" Browser should now be open.");
         Ok(())
     }
 }
@@ -418,7 +418,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
             match post_to_x(&message, None) {
                 Ok(PostResult::Api) => "🚀 Posted to X via API".to_string(),
                 Ok(PostResult::Fallback) => "🌐 Browser opened for manual posting on X".to_string(),
-                Err(e) => format!("❌ Post failed: {}", e),
+                Err(e) => format!(" Post failed: {}", e),
             }
         }
 
@@ -512,7 +512,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                     } else {
                         match send_email_native(&to, &subject, &body) {
                             Ok(_) => format!("📧 Manual email sent to {}", to),
-                            Err(e) => format!("❌ {}", e),
+                            Err(e) => format!(" {}", e),
                         }
                     }
                 }
@@ -538,7 +538,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                     match choice.as_str() {
                         "y" | "yes" => match send_email_native(&to, &subject, &body) {
                             Ok(_) => format!("📧 AI email sent to {}", to),
-                            Err(e) => format!("❌ {}", e),
+                            Err(e) => format!(" {}", e),
                         },
                         "e" | "edit" => {
                             let tmp_path = "/tmp/terrek-email-draft.txt";
@@ -551,8 +551,8 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                             let _ = fs::remove_file(tmp_path);
 
                             match send_email_native(&to, &subject, edited.trim()) {
-                                Ok(_) => format!("📧 Edited email sent to {}", to),
-                                Err(e) => format!("❌ {}", e),
+                                Ok(_) => format!(" Edited email sent to {}", to),
+                                Err(e) => format!(" {}", e),
                             }
                         }
                         _ => "Cancelled.".to_string(),
@@ -583,7 +583,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                         let caption = if parts.len() > 3 { Some(parts[3..].join(" ")) } else { None };
                         match send_telegram_photo(path, caption.as_deref()) {
                             Ok(_) => "📸 Photo sent to Telegram".to_string(),
-                            Err(e) => format!("❌ {}", e),
+                            Err(e) => format!(" {}", e),
                         }
                     }
                 }
@@ -591,7 +591,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                     let message = parts[1..].join(" ");
                     match send_telegram_message(&message) {
                         Ok(_) => format!("📱 Telegram message sent: {}", message),
-                        Err(e) => format!("❌ {}", e),
+                        Err(e) => format!(" {}", e),
                     }
                 }
             }
