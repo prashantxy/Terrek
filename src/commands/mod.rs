@@ -9,12 +9,12 @@ use anyhow::{Context, Result};
 use chrono::{Local, TimeZone};
 use std::process::Command;
 use std::fs;
-use std::io::{self, Write};
+use std::io::{self, Write};   // ← Fixed: Added proper io import
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
-// Lettre imports
+// Email
 use lettre::{
     message::{header::ContentType, Mailbox},
     transport::smtp::{
@@ -23,6 +23,10 @@ use lettre::{
     },
     Message, SmtpTransport, Transport,
 };
+
+// Telegram
+use reqwest;
+use serde::Deserialize;
 
 pub enum TerrekAction {
     Output(String),
@@ -43,10 +47,12 @@ struct EmailConfig {
     password: String,
 }
 
+// ===================== EMAIL =====================
+
 fn load_email_config() -> Result<EmailConfig> {
     Ok(EmailConfig {
         from_email: std::env::var("TERREK_EMAIL_FROM")
-            .context("TERREK_EMAIL_FROM is not set. Example: export TERREK_EMAIL_FROM='pdubey1924@gmail.com'")?,
+            .context("TERREK_EMAIL_FROM is not set.")?,
         smtp_host: std::env::var("TERREK_SMTP_HOST").unwrap_or_else(|_| "smtp.gmail.com".to_string()),
         smtp_port: std::env::var("TERREK_SMTP_PORT")
             .unwrap_or_else(|_| "587".to_string())
@@ -55,7 +61,7 @@ fn load_email_config() -> Result<EmailConfig> {
         username: std::env::var("TERREK_SMTP_USER")
             .context("TERREK_SMTP_USER is not set")?,
         password: std::env::var("TERREK_SMTP_PASS")
-            .context("TERREK_SMTP_PASS is not set. Use your 16-character Gmail App Password (no spaces)")?,
+            .context("TERREK_SMTP_PASS is not set. Use 16-char Gmail App Password (no spaces)")?,
     })
 }
 
@@ -68,12 +74,11 @@ fn send_email_native(to: &str, subject: &str, body: &str) -> Result<()> {
         .subject(subject)
         .header(ContentType::TEXT_PLAIN)
         .body(body.to_string())
-        .context("Failed to build email message")?;
+        .context("Failed to build email")?;
 
     let creds = Credentials::new(cfg.username.clone(), cfg.password.clone());
 
-    let mailer = SmtpTransport::starttls_relay(&cfg.smtp_host)
-        .context("Failed to create SMTP transport")?
+    let mailer = SmtpTransport::starttls_relay(&cfg.smtp_host)?
         .port(cfg.smtp_port)
         .credentials(creds)
         .authentication(vec![Mechanism::Plain])
@@ -86,16 +91,92 @@ fn send_email_native(to: &str, subject: &str, body: &str) -> Result<()> {
             Ok(())
         }
         Err(e) => {
-            let err_str = e.to_string().to_lowercase();
             println!("❌ Failed to send email: {}", e);
-            if err_str.contains("535") || err_str.contains("authentication") {
-                println!("\n💡 TIP: Your Gmail App Password may be incorrect.");
-                println!("   Go to: https://myaccount.google.com/apppasswords");
-                println!("   Create a new App Password for 'Terrek CLI'");
+            if e.to_string().contains("535") || e.to_string().contains("authentication") {
+                println!("\n💡 TIP: Regenerate your Gmail App Password at https://myaccount.google.com/apppasswords");
             }
             Err(e.into())
         }
     }
+}
+
+// ===================== TELEGRAM =====================
+
+fn get_telegram_config() -> Result<(String, String)> {
+    let token = std::env::var("TERREK_TELEGRAM_TOKEN")
+        .context("TERREK_TELEGRAM_TOKEN not set")?;
+    
+    let chat_id = std::env::var("TERREK_TELEGRAM_CHAT_ID")
+        .context("TERREK_TELEGRAM_CHAT_ID not set. Run: terrek telegram setup")?;
+
+    Ok((token, chat_id))
+}
+
+fn send_telegram_message(text: &str) -> Result<()> {
+    let (token, chat_id) = get_telegram_config()?;
+
+    let url = format!("https://api.telegram.org/bot{}/sendMessage", token);
+
+    let client = reqwest::blocking::Client::new();
+    
+    let response = client.post(&url)
+        .form(&[
+            ("chat_id", chat_id.as_str()),
+            ("text", text),
+            ("parse_mode", "HTML"),
+        ])
+        .send()?;
+
+    if response.status().is_success() {
+        println!("✅ Telegram message sent successfully!");
+        Ok(())
+    } else {
+        let error_text = response.text().unwrap_or_else(|_| "Unknown error".to_string());
+        anyhow::bail!("Telegram API Error: {}", error_text)
+    }
+}
+
+fn send_telegram_photo(photo_path: &str, caption: Option<&str>) -> Result<()> {
+    let (token, chat_id) = get_telegram_config()?;
+
+    if !std::path::Path::new(photo_path).exists() {
+        anyhow::bail!("Photo file not found: {}", photo_path);
+    }
+
+    let url = format!("https://api.telegram.org/bot{}/sendPhoto", token);
+
+    let client = reqwest::blocking::Client::new();
+    let mut form = reqwest::blocking::multipart::Form::new()
+        .text("chat_id", chat_id.clone());
+
+    if let Some(c) = caption {
+        form = form.text("caption", c.to_string());
+    }
+
+    form = form.file("photo", photo_path)?;
+
+    let response = client.post(&url)
+        .multipart(form)
+        .send()?;
+
+    if response.status().is_success() {
+        println!("✅ Photo sent to Telegram!");
+        Ok(())
+    } else {
+        let err = response.text().unwrap_or_default();
+        anyhow::bail!("Failed to send photo: {}", err)
+    }
+}
+
+fn setup_telegram() -> Result<()> {
+    println!("📱 Telegram Bot Setup:\n");
+    println!("1. Open Telegram → Search @BotFather");
+    println!("2. Send /newbot and create your bot");
+    println!("3. Copy the token and set it:");
+    println!("   export TERREK_TELEGRAM_TOKEN=\"your_token_here\"");
+    println!("\n4. Message your bot with any text");
+    println!("5. Then run: terrek telegram setup");
+    Ok(())
 }
 
 // ===================== UTILS =====================
@@ -145,33 +226,15 @@ fn resolve_url(input: &str) -> String {
     let query = words[1..].join("+");
 
     match first {
-        "youtube" | "yt" => {
-            if query.is_empty() { "https://www.youtube.com".to_string() }
-            else { format!("https://www.youtube.com/results?search_query={}", query) }
-        }
-        "github" | "gh" => {
-            if query.is_empty() { "https://github.com".to_string() }
-            else if words.len() == 2 { format!("https://github.com/{}", words[1]) }
-            else { format!("https://github.com/search?q={}", query) }
-        }
+        "youtube" | "yt" => if query.is_empty() { "https://www.youtube.com".to_string() } else { format!("https://www.youtube.com/results?search_query={}", query) },
+        "github" | "gh" => if query.is_empty() { "https://github.com".to_string() } else if words.len() == 2 { format!("https://github.com/{}", words[1]) } else { format!("https://github.com/search?q={}", query) },
         "stackoverflow" | "so" => format!("https://stackoverflow.com/search?q={}", input.replace(" ", "+")),
         "reddit" => format!("https://www.reddit.com/search/?q={}", query),
-        "leetcode" | "lc" => {
-            if query.is_empty() { "https://leetcode.com".to_string() }
-            else { format!("https://leetcode.com/problemset/?search={}", query) }
-        }
+        "leetcode" | "lc" => if query.is_empty() { "https://leetcode.com".to_string() } else { format!("https://leetcode.com/problemset/?search={}", query) },
         "gfg" => format!("https://www.geeksforgeeks.org/?s={}", query),
-        _ => {
-            if !input.contains(' ') {
-                format!("https://{}.com", input)
-            } else {
-                format!("https://www.google.com/search?q={}", input.replace(" ", "+"))
-            }
-        }
+        _ => if !input.contains(' ') { format!("https://{}.com", input) } else { format!("https://www.google.com/search?q={}", input.replace(" ", "+")) },
     }
 }
-
-// ===================== X POSTING =====================
 
 fn post_to_x(message: &str, image_path: Option<&str>) -> Result<PostResult> {
     let mut cmd = Command::new("xmaster");
@@ -212,7 +275,7 @@ fn open_intent_fallback(message: &str) -> Result<()> {
     Ok(())
 }
 
-// ===================== IMPROVED EMAIL HELPERS (Editor Mode) =====================
+// ===================== EMAIL HELPERS =====================
 
 fn compose_manual_email() -> Result<String> {
     let tmp_path = "/tmp/terrek-email-manual.txt";
@@ -236,7 +299,6 @@ fn compose_manual_email() -> Result<String> {
     let content = fs::read_to_string(tmp_path)?;
     let _ = fs::remove_file(tmp_path);
 
-    // Remove comment lines
     let body: String = content
         .lines()
         .filter(|line| !line.trim_start().starts_with('#'))
@@ -479,6 +541,40 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
             }
         }
 
+        "telegram" | "tg" => {
+            if parts.len() < 2 {
+                return Ok(TerrekAction::Output(
+                    "Usage:\n  telegram <message>\n  tg \"message\"\n  telegram setup\n  telegram photo <filepath> [caption]".to_string()
+                ));
+            }
+
+            match parts[1] {
+                "setup" => {
+                    setup_telegram()?;
+                    "Telegram setup instructions shown.".to_string()
+                }
+                "photo" => {
+                    if parts.len() < 3 {
+                        "Usage: telegram photo <filepath> [caption]".to_string()
+                    } else {
+                        let path = parts[2];
+                        let caption = if parts.len() > 3 { Some(parts[3..].join(" ")) } else { None };
+                        match send_telegram_photo(path, caption.as_deref()) {
+                            Ok(_) => "📸 Photo sent to Telegram".to_string(),
+                            Err(e) => format!("❌ {}", e),
+                        }
+                    }
+                }
+                _ => {
+                    let message = parts[1..].join(" ");
+                    match send_telegram_message(&message) {
+                        Ok(_) => format!("📱 Telegram message sent: {}", message),
+                        Err(e) => format!("❌ {}", e),
+                    }
+                }
+            }
+        }
+
         "help" => {
             "Available commands:\n\
              hello, time, clear\n\
@@ -488,6 +584,9 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
              ai setup | ai <prompt>\n\
              mail manual <to> [subject]\n\
              mail ai <to> [subject]\n\
+             telegram <message> | tg \"message\"\n\
+             telegram setup\n\
+             telegram photo <file> [caption]\n\
              history, search <word>".to_string()
         }
 
