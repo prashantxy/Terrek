@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use chrono::{Local, TimeZone};
 use std::process::Command;
 use std::fs;
-use std::io::{self, Write};   // ← Fixed: Added proper io import
+use std::io::{self, Write};
 
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
@@ -236,6 +236,8 @@ fn resolve_url(input: &str) -> String {
     }
 }
 
+// ===================== X POSTING (Improved) =====================
+
 fn post_to_x(message: &str, image_path: Option<&str>) -> Result<PostResult> {
     let mut cmd = Command::new("xmaster");
     cmd.arg("post").arg(message);
@@ -246,21 +248,26 @@ fn post_to_x(message: &str, image_path: Option<&str>) -> Result<PostResult> {
 
     match cmd.output() {
         Ok(output) if output.status.success() => {
-            println!("🚀 Posted via API");
+            println!("🚀 Posted to X via API");
             Ok(PostResult::Api)
         }
         Ok(output) => {
-            let err = String::from_utf8_lossy(&output.stderr).to_lowercase();
-            if err.contains("rate limit") || err.contains("429") {
-                println!("⚠️ API issue → fallback triggered");
+            let stderr = String::from_utf8_lossy(&output.stderr).to_lowercase();
+            println!("⚠️ X Post failed via API");
+
+            if stderr.contains("402") || stderr.contains("payment") || stderr.contains("credits") {
+                println!("💰 No credits remaining in xmaster account.");
+                println!("   Opening browser for manual post...");
                 open_intent_fallback(message)?;
                 Ok(PostResult::Fallback)
             } else {
-                anyhow::bail!("Post failed: {}", err);
+                println!("Error: {}", String::from_utf8_lossy(&output.stderr));
+                anyhow::bail!("X post failed")
             }
         }
         Err(_) => {
-            println!("⚠️ xmaster missing → fallback");
+            println!("⚠️ xmaster not found or failed to run.");
+            println!("   Opening browser fallback...");
             open_intent_fallback(message)?;
             Ok(PostResult::Fallback)
         }
@@ -270,9 +277,24 @@ fn post_to_x(message: &str, image_path: Option<&str>) -> Result<PostResult> {
 fn open_intent_fallback(message: &str) -> Result<()> {
     let encoded = urlencoding::encode(message);
     let url = format!("https://twitter.com/intent/tweet?text={}", encoded);
-    let _ = Command::new("open").arg(&url).spawn();
-    println!("🌐 Opened browser fallback");
-    Ok(())
+
+    println!("🌐 Opening X compose window in browser...");
+
+    // More reliable on macOS
+    let status = Command::new("open").arg(&url).status();
+
+    if status.is_ok() && status.unwrap().success() {
+        println!("✅ Browser opened. You can now post manually.");
+        Ok(())
+    } else {
+        // Alternative method
+        let _ = Command::new("sh")
+            .arg("-c")
+            .arg(format!("open '{}'", url))
+            .status();
+        println!("✅ Browser should now be open.");
+        Ok(())
+    }
 }
 
 // ===================== EMAIL HELPERS =====================
@@ -394,8 +416,8 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
             }
             let message = parts[1..].join(" ");
             match post_to_x(&message, None) {
-                Ok(PostResult::Api) => format!("🚀 Posted via API\n{}", message),
-                Ok(PostResult::Fallback) => format!("🌐 Opened in browser\n{}", message),
+                Ok(PostResult::Api) => "🚀 Posted to X via API".to_string(),
+                Ok(PostResult::Fallback) => "🌐 Browser opened for manual posting on X".to_string(),
                 Err(e) => format!("❌ Post failed: {}", e),
             }
         }
@@ -403,8 +425,8 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
         "announce" => {
             let message = generate_announce_message().unwrap_or_default();
             match post_to_x(&message, None) {
-                Ok(PostResult::Api) => format!("Announced via API\n{}", message),
-                Ok(PostResult::Fallback) => format!("Opened browser for announcement\n{}", message),
+                Ok(PostResult::Api) => "Announced via API".to_string(),
+                Ok(PostResult::Fallback) => "Opened browser for announcement".to_string(),
                 Err(e) => format!("Failed to announce: {}", e),
             }
         }
