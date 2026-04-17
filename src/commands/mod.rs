@@ -91,7 +91,7 @@ fn send_email_native(to: &str, subject: &str, body: &str) -> Result<()> {
             Ok(())
         }
         Err(e) => {
-            println!("❌ Failed to send email: {}", e);
+            println!(" Failed to send email: {}", e);
             if e.to_string().contains("535") || e.to_string().contains("authentication") {
                 println!("\n TIP: Regenerate your Gmail App Password at https://myaccount.google.com/apppasswords");
             }
@@ -160,7 +160,7 @@ fn send_telegram_photo(photo_path: &str, caption: Option<&str>) -> Result<()> {
         .send()?;
 
     if response.status().is_success() {
-        println!("✅ Photo sent to Telegram!");
+        println!(" Photo sent to Telegram!");
         Ok(())
     } else {
         let err = response.text().unwrap_or_default();
@@ -248,7 +248,7 @@ fn post_to_x(message: &str, image_path: Option<&str>) -> Result<PostResult> {
 
     match cmd.output() {
         Ok(output) if output.status.success() => {
-            println!("🚀 Posted to X via API");
+            println!(" Posted to X via API");
             Ok(PostResult::Api)
         }
         Ok(output) => {
