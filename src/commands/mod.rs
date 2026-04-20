@@ -4,7 +4,7 @@ use crate::ai::provider::Provider;
 use crate::context::ContextState;
 use crate::db::history::{get_history, search_history};
 use crate::config::load_config;
-
+use roux::Reddit;
 use anyhow::{Context, Result};
 use chrono::{Local, TimeZone};
 use std::process::Command;
@@ -49,6 +49,31 @@ struct EmailConfig {
 
 // ===================== EMAIL =====================
 
+
+asyanc fn post_to_reddit(subreddit:&str,tittle :&str,body:&str)->Result<()>{
+    let client_id = std::env::var("REDDIT_CLIENT_ID")
+                  .context("REDDIT_CLIENT_ID not set. Create script app at reddit.com/prefs/apps")?;
+    let client_secret = std::env::var("REDDIT_CLIENT_SECRET")
+                  .context("REDDIT_CLIENT_SECRET not set")?;
+ 
+    let username = std::env::var("REDDIT_USERNAME")?;
+    let password = std::env::var("REDDIT_PASSWORD")?;
+    let reddit = Reddit:::new(
+        "terrek-cli/0.1 (by /u/yourusername)",
+        &client_id,
+        &client_secret,
+    )
+    .username(&username)
+    .password(&password)
+    .login()
+    .await?;
+    reddit.submit_text(title, body, subreddit).await
+        .context("Failed to submit post to Reddit")?;
+
+    println!("Posted to r/{}: {}", subreddit, title);
+    Ok(())
+
+}
 fn load_email_config() -> Result<EmailConfig> {
     Ok(EmailConfig {
         from_email: std::env::var("TERREK_EMAIL_FROM")
@@ -421,7 +446,23 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                 Err(e) => format!(" Post failed: {}", e),
             }
         }
+           "reddit" | "r" => {
+            if parts.len() < 4 {
+            return Ok(TerrekAction::Output(
+            "Usage: reddit <subreddit> \"title\" \"body text...\"\n   Example: reddit programming \"Hello from Terrek\" \"Posted entirely from terminal!\"".to_string()
+        ));
+    }
 
+    let subreddit = parts[1].to_string();
+    let title = parts[2].to_string();                    // supports spaces if quoted properly in shell
+    let body = parts[3..].join(" ");
+
+    // Since roux is async, we need to block or spawn
+    match tokio::runtime::Runtime::new()?.block_on(post_to_reddit(&subreddit, &title, &body)) {
+        Ok(_) => format!("🚀 Posted to r/{}", subreddit),
+        Err(e) => format!("Reddit post failed: {}", e),
+    }
+}
         "announce" => {
             let message = generate_announce_message().unwrap_or_default();
             match post_to_x(&message, None) {
