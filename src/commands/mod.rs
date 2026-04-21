@@ -26,7 +26,9 @@ use lettre::{
 
 // Telegram
 use reqwest;
-use serde::Deserialize;
+
+// For X fallback
+use urlencoding;
 
 pub enum TerrekAction {
     Output(String),
@@ -47,33 +49,68 @@ struct EmailConfig {
     password: String,
 }
 
-// ===================== EMAIL =====================
+// ===================== REDDIT =====================
 
-
-asyanc fn post_to_reddit(subreddit:&str,tittle :&str,body:&str)->Result<()>{
+async fn post_to_reddit(subreddit: &str, title: &str, body: &str) -> Result<()> {
     let client_id = std::env::var("REDDIT_CLIENT_ID")
-                  .context("REDDIT_CLIENT_ID not set. Create script app at reddit.com/prefs/apps")?;
+        .context("REDDIT_CLIENT_ID not set.\nCreate a 'script' app at https://www.reddit.com/prefs/apps")?;
+
     let client_secret = std::env::var("REDDIT_CLIENT_SECRET")
-                  .context("REDDIT_CLIENT_SECRET not set")?;
- 
-    let username = std::env::var("REDDIT_USERNAME")?;
-    let password = std::env::var("REDDIT_PASSWORD")?;
-    let reddit = Reddit:::new(
-        "terrek-cli/0.1 (by /u/yourusername)",
+        .context("REDDIT_CLIENT_SECRET not set")?;
+
+    let username = std::env::var("REDDIT_USERNAME")
+        .context("REDDIT_USERNAME not set")?;
+
+    let password = std::env::var("REDDIT_PASSWORD")
+        .context("REDDIT_PASSWORD not set")?;
+
+    let reddit = Reddit::new(
+        "terrek-cli/0.1 (by /u/your_reddit_username)", 
         &client_id,
         &client_secret,
     )
     .username(&username)
     .password(&password)
     .login()
-    .await?;
-    reddit.submit_text(title, body, subreddit).await
+    .await
+    .context("Failed to login to Reddit. Check your credentials.")?;
+
+    reddit.submit_text(title, body, subreddit)
+        .await
         .context("Failed to submit post to Reddit")?;
 
-    println!("Posted to r/{}: {}", subreddit, title);
+    println!(" Successfully posted to r/{}!", subreddit);
+    println!("   Title: {}", title);
     Ok(())
-
 }
+
+fn open_reddit_fallback(subreddit: &str, title: &str, body: &str) -> Result<()> {
+    let encoded_title = urlencoding::encode(title);
+    let encoded_body = urlencoding::encode(body);
+
+    let url = format!(
+        "https://www.reddit.com/r/{}/submit?title={}&text={}",
+        subreddit, encoded_title, encoded_body
+    );
+
+    println!("🌐 Opening Reddit submit page...");
+
+    let status = Command::new("open").arg(&url).status();
+
+    if status.is_ok() && status.unwrap().success() {
+        println!("✅ Browser opened. You can post manually.");
+    } else {
+        // fallback shell
+        let _ = Command::new("sh")
+            .arg("-c")
+            .arg(format!("open '{}'", url))
+            .status();
+    }
+
+    Ok(())
+}
+// ===================== EMAIL =====================
+
 fn load_email_config() -> Result<EmailConfig> {
     Ok(EmailConfig {
         from_email: std::env::var("TERREK_EMAIL_FROM")
@@ -118,7 +155,7 @@ fn send_email_native(to: &str, subject: &str, body: &str) -> Result<()> {
         Err(e) => {
             println!(" Failed to send email: {}", e);
             if e.to_string().contains("535") || e.to_string().contains("authentication") {
-                println!("\n TIP: Regenerate your Gmail App Password at https://myaccount.google.com/apppasswords");
+                println!("\n💡 TIP: Regenerate your Gmail App Password at https://myaccount.google.com/apppasswords");
             }
             Err(e.into())
         }
@@ -153,7 +190,7 @@ fn send_telegram_message(text: &str) -> Result<()> {
         .send()?;
 
     if response.status().is_success() {
-        println!("✅ Telegram message sent successfully!");
+        println!(" Telegram message sent successfully!");
         Ok(())
     } else {
         let error_text = response.text().unwrap_or_else(|_| "Unknown error".to_string());
@@ -261,7 +298,7 @@ fn resolve_url(input: &str) -> String {
     }
 }
 
-// ===================== X POSTING (Improved) =====================
+// ===================== X POSTING =====================
 
 fn post_to_x(message: &str, image_path: Option<&str>) -> Result<PostResult> {
     let mut cmd = Command::new("xmaster");
@@ -281,8 +318,7 @@ fn post_to_x(message: &str, image_path: Option<&str>) -> Result<PostResult> {
             println!(" X Post failed via API");
 
             if stderr.contains("402") || stderr.contains("payment") || stderr.contains("credits") {
-                println!("💰 No credits remaining in xmaster account.");
-                println!("   Opening browser for manual post...");
+                println!("💰 No credits remaining. Opening browser fallback...");
                 open_intent_fallback(message)?;
                 Ok(PostResult::Fallback)
             } else {
@@ -291,8 +327,7 @@ fn post_to_x(message: &str, image_path: Option<&str>) -> Result<PostResult> {
             }
         }
         Err(_) => {
-            println!(" xmaster not found or failed to run.");
-            println!("   Opening browser fallback...");
+            println!(" xmaster not found. Opening browser fallback...");
             open_intent_fallback(message)?;
             Ok(PostResult::Fallback)
         }
@@ -305,19 +340,17 @@ fn open_intent_fallback(message: &str) -> Result<()> {
 
     println!("🌐 Opening X compose window in browser...");
 
-    // More reliable on macOS
     let status = Command::new("open").arg(&url).status();
 
     if status.is_ok() && status.unwrap().success() {
-        println!(" Browser opened. You can now post manually.");
+        println!("✅ Browser opened. You can now post manually.");
         Ok(())
     } else {
-        // Alternative method
         let _ = Command::new("sh")
             .arg("-c")
             .arg(format!("open '{}'", url))
             .status();
-        println!(" Browser should now be open.");
+        println!("✅ Browser should now be open.");
         Ok(())
     }
 }
@@ -446,21 +479,19 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                 Err(e) => format!(" Post failed: {}", e),
             }
         }
-           "reddit" | "r" => {
-            if parts.len() < 4 {
-            return Ok(TerrekAction::Output(
-            "Usage: reddit <subreddit> \"title\" \"body text...\"\n   Example: reddit programming \"Hello from Terrek\" \"Posted entirely from terminal!\"".to_string()
-        ));
-    }
 
-    let subreddit = parts[1].to_string();
-    let title = parts[2].to_string();                    // supports spaces if quoted properly in shell
-    let body = parts[3..].join(" ");
+        "reddit" | "r" => {
+         if parts.len() < 4 {
+           return Ok(TerrekAction::Output("Usage: reddit <sub> \"title\" \"body\"".into()));
+         }
 
-    // Since roux is async, we need to block or spawn
-    match tokio::runtime::Runtime::new()?.block_on(post_to_reddit(&subreddit, &title, &body)) {
-        Ok(_) => format!("🚀 Posted to r/{}", subreddit),
-        Err(e) => format!("Reddit post failed: {}", e),
+         let subreddit = parts[1];
+         let title = parts[2];
+         let body = parts[3..].join(" ");
+
+         match open_reddit_fallback(subreddit, title, &body) {
+        Ok(_) => "🌐 Opened Reddit post page".to_string(),
+        Err(e) => format!(" Failed: {}", e),
     }
 }
         "announce" => {
@@ -642,7 +673,8 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
             "Available commands:\n\
              hello, time, clear\n\
              open <app|url>\n\
-             post \"message\"\n\
+             post \"message\" (to X)\n\
+             reddit <subreddit> \"title\" \"body\"   (or r ...)\n\
              announce\n\
              ai setup | ai <prompt>\n\
              mail manual <to> [subject]\n\
