@@ -42,3 +42,4 @@ tarpaulin-report.html
 *.exe
 *.out
 *.dSYM
+node_modules

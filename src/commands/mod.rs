@@ -49,6 +49,69 @@ struct EmailConfig {
     password: String,
 }
 
+// ===================== WHATSAPP HELPER FUNCTIONS =====================
+
+// ===================== WHATSAPP =====================
+
+fn format_number_to_jid(number: &str) -> String {
+    let num = number.trim().replace("+", "").replace(" ", "");
+    if num.starts_with("91") && num.len() == 12 {
+        format!("{}@s.whatsapp.net", num)
+    } else if num.len() == 10 {
+        format!("91{}@s.whatsapp.net", num)
+    } else {
+        format!("{}@s.whatsapp.net", num)
+    }
+}
+
+fn send_whatsapp_via_bridge(jid: &str, message: &str) -> Result<()> {
+    println!("📱 Sending WhatsApp message to {}...", jid.replace("@s.whatsapp.net", ""));
+
+    let root = std::env::current_dir().context("Failed to get project root")?;
+
+    let candidates = vec![
+        root.join("src/commands/whatsapp.ts"),
+        root.join("src/commands/whatsapp.js"),
+        root.join("commands/whatsapp.ts"),
+        root.join("commands/whatsapp.js"),
+    ];
+
+    let whatsapp_file = candidates.into_iter()
+        .find(|p| p.exists())
+        .context("WhatsApp file not found at src/commands/whatsapp.ts")?;
+
+    println!("Using WhatsApp file: {}", whatsapp_file.display());
+
+    let status = Command::new("npx")
+        .arg("tsx")
+        .arg("-e")
+        .arg(format!(
+            r#"
+            const whatsapp = require('{}');
+            whatsapp.sendWhatsAppMessage('{}', {{ text: `{}` }})
+                .then(() => {{
+                    console.log('Bridge: Message sent successfully');
+                    process.exit(0);
+                }})
+                .catch(err => {{
+                    console.error('Bridge Error:', err.message);
+                    process.exit(1);
+                }});
+            "#,
+            whatsapp_file.to_string_lossy().replace("\\", "\\\\"),
+            jid,
+            message.replace("`", "\\`").replace("\\", "\\\\")
+        ))
+        .current_dir(&root)
+        .status()
+        .context("Failed to run tsx bridge")?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        anyhow::bail!("WhatsApp send failed. Check Node logs for details.")
+    }
+}
 // ===================== REDDIT =====================
 
 async fn post_to_reddit(subreddit: &str, title: &str, body: &str) -> Result<()> {
@@ -100,7 +163,6 @@ fn open_reddit_fallback(subreddit: &str, title: &str, body: &str) -> Result<()> 
     if status.is_ok() && status.unwrap().success() {
         println!("✅ Browser opened. You can post manually.");
     } else {
-        // fallback shell
         let _ = Command::new("sh")
             .arg("-c")
             .arg(format!("open '{}'", url))
@@ -109,6 +171,7 @@ fn open_reddit_fallback(subreddit: &str, title: &str, body: &str) -> Result<()> 
 
     Ok(())
 }
+
 // ===================== EMAIL =====================
 
 fn load_email_config() -> Result<EmailConfig> {
@@ -481,19 +544,20 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
         }
 
         "reddit" | "r" => {
-         if parts.len() < 4 {
-           return Ok(TerrekAction::Output("Usage: reddit <sub> \"title\" \"body\"".into()));
-         }
+            if parts.len() < 4 {
+                return Ok(TerrekAction::Output("Usage: reddit <sub> \"title\" \"body\"".into()));
+            }
 
-         let subreddit = parts[1];
-         let title = parts[2];
-         let body = parts[3..].join(" ");
+            let subreddit = parts[1];
+            let title = parts[2];
+            let body = parts[3..].join(" ");
 
-         match open_reddit_fallback(subreddit, title, &body) {
-        Ok(_) => "🌐 Opened Reddit post page".to_string(),
-        Err(e) => format!(" Failed: {}", e),
-    }
-}
+            match open_reddit_fallback(subreddit, title, &body) {
+                Ok(_) => "🌐 Opened Reddit post page".to_string(),
+                Err(e) => format!(" Failed: {}", e),
+            }
+        }
+
         "announce" => {
             let message = generate_announce_message().unwrap_or_default();
             match post_to_x(&message, None) {
@@ -635,40 +699,26 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
             }
         }
 
-        "telegram" | "tg" => {
-            if parts.len() < 2 {
+        // ===================== WHATSAPP =====================
+                // ===================== WHATSAPP =====================
+               "whatsapp" | "wa" => {
+            if parts.len() < 3 {
                 return Ok(TerrekAction::Output(
-                    "Usage:\n  telegram <message>\n  tg \"message\"\n  telegram setup\n  telegram photo <filepath> [caption]".to_string()
+                    "Usage:\n  wa <number> <message>\n  whatsapp <number> <message>\n\nExample:\n  wa 7972655677 hey there".to_string()
                 ));
             }
 
-            match parts[1] {
-                "setup" => {
-                    setup_telegram()?;
-                    "Telegram setup instructions shown.".to_string()
-                }
-                "photo" => {
-                    if parts.len() < 3 {
-                        "Usage: telegram photo <filepath> [caption]".to_string()
-                    } else {
-                        let path = parts[2];
-                        let caption = if parts.len() > 3 { Some(parts[3..].join(" ")) } else { None };
-                        match send_telegram_photo(path, caption.as_deref()) {
-                            Ok(_) => "📸 Photo sent to Telegram".to_string(),
-                            Err(e) => format!(" {}", e),
-                        }
-                    }
-                }
-                _ => {
-                    let message = parts[1..].join(" ");
-                    match send_telegram_message(&message) {
-                        Ok(_) => format!("📱 Telegram message sent: {}", message),
-                        Err(e) => format!(" {}", e),
-                    }
-                }
+            let raw_number = parts[1];
+            let message_text = parts[2..].join(" ");
+
+            let jid = format_number_to_jid(raw_number);
+
+            match send_whatsapp_via_bridge(&jid, &message_text) {
+                Ok(_) => format!("✅ WhatsApp message sent to {}", raw_number),
+                Err(e) => format!("❌ {}", e),
             }
         }
-
+        
         "help" => {
             "Available commands:\n\
              hello, time, clear\n\
@@ -682,6 +732,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
              telegram <message> | tg \"message\"\n\
              telegram setup\n\
              telegram photo <file> [caption]\n\
+             whatsapp <number> <message>   (or wa ...)\n\
              history, search <word>".to_string()
         }
 
