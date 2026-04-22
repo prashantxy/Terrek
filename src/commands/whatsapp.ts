@@ -1,4 +1,3 @@
-// src/commands/whatsapp.ts
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
@@ -8,11 +7,26 @@ import qrcode from "qrcode-terminal";
 
 let sock: any = null;
 let isInitializing = false;
+let connectionState: "idle" | "connecting" | "open" | "closed" = "idle";
+
+
+async function destroySocket() {
+  try {
+    if (sock) {
+      sock.ev.removeAllListeners();
+      sock.ws?.close();
+    }
+  } catch {}
+  sock = null;
+  connectionState = "closed";
+}
+
 
 async function autoInit() {
   if (sock || isInitializing) return;
 
   isInitializing = true;
+  connectionState = "connecting";
   console.log("🔄 Auto-initializing WhatsApp...");
 
   try {
@@ -22,99 +36,127 @@ async function autoInit() {
     sock = makeWASocket({
       auth: state,
       version,
-      browser: ["Ubuntu", "Chrome", "20.0.04"],
+      browser: ["MacOS", "Chrome", "120.0.0"], 
+      syncFullHistory: false,
     });
 
     sock.ev.on("creds.update", saveCreds);
 
-    sock.ev.on("connection.update", (update: any) => {
-      const { connection, lastDisconnect, qr } = update;
+   
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error("Connection timeout"));
+      }, 20000);
 
-      if (qr) {
-        console.log("📱 Scan this QR code:");
-        qrcode.generate(qr, { small: true });
-      }
+      sock.ev.on("connection.update", async (update: any) => {
+        const { connection, lastDisconnect, qr } = update;
 
-      if (connection === "open") {
-        console.log("✅ WhatsApp Connected successfully!");
-      }
-
-      if (connection === "close") {
-        const statusCode = lastDisconnect?.error?.output?.statusCode;
-        console.log(`❌ Connection closed: ${statusCode}`);
-
-        if (statusCode !== DisconnectReason.loggedOut) {
-          console.log("🔄 Reconnecting in 5s...");
-          setTimeout(autoInit, 5000);
-        } else {
-          console.log("🚪 Logged out. Delete 'auth' folder.");
+        if (qr) {
+          console.log("📱 Scan this QR code:");
+          qrcode.generate(qr, { small: true });
         }
-      }
+
+        
+        if (connection === "open") {
+          console.log("✅ WhatsApp Connected successfully!");
+          connectionState = "open";
+          clearTimeout(timeout);
+          resolve();
+        }
+
+        if (connection === "close") {
+          const statusCode = lastDisconnect?.error?.output?.statusCode;
+          console.log(`❌ Connection closed: ${statusCode}`);
+
+          
+          if (statusCode === 515) {
+            console.log("⚠️ Pairing complete. Restarting clean session...");
+
+            clearTimeout(timeout);
+            resolve(); 
+            
+            setTimeout(async () => {
+              await destroySocket();
+              autoInit();
+            }, 6000);
+
+            return;
+          }
+
+          
+          clearTimeout(timeout);
+          reject(new Error(`Connection closed: ${statusCode}`));
+        }
+      });
     });
 
-    // Clean message handler
-    sock.ev.on("messages.upsert", (m: any) => {
-      for (const msg of m.messages || []) {
-        if (msg.message?.protocolMessage) continue;
-        if (msg.key.fromMe) continue;
+   
+    if (connectionState === "connecting") {
+      sock.ev.on("messages.upsert", (m: any) => {
+        for (const msg of m.messages || []) {
+          if (msg.message?.protocolMessage) continue;
+          if (msg.key.fromMe) continue;
 
-        const from = msg.key.remoteJid;
-        const text = msg.message?.conversation ||
-                     msg.message?.extendedTextMessage?.text ||
-                     "[Non-text message]";
-        console.log(`📨 New message from ${from}: ${text}`);
-      }
-    });
+          const from = msg.key.remoteJid;
+          const text =
+            msg.message?.conversation ||
+            msg.message?.extendedTextMessage?.text ||
+            "[Non-text message]";
 
-    // Wait for initial sync to complete
-    await new Promise(resolve => setTimeout(resolve, 4000));
-    console.log("✅ WhatsApp socket is ready.");
+          console.log(` ${from}: ${text}`);
+        }
+      });
 
+      console.log(" WhatsApp socket is ready.");
+    }
   } catch (err: any) {
-    console.error("❌ Auto-init failed:", err.message);
+    console.error(" Auto-init failed:", err.message);
+    await destroySocket();
   } finally {
     isInitializing = false;
   }
 }
 
-// Improved send function with retry logic
+// 🚀 SEND FUNCTION
 async function sendWhatsAppMessage(jid: string, content: any) {
-  if (!sock) {
-    console.log("⚡ WhatsApp not ready. Auto-initializing...");
+  if (!sock || connectionState !== "open") {
+    console.log("⚡ WhatsApp not ready. Initializing...");
     await autoInit();
-    if (!sock) throw new Error("Failed to initialize WhatsApp");
   }
 
-  // Retry logic for "Connection Closed" / 428 error
   let attempts = 0;
-  const maxAttempts = 12;
+  const maxAttempts = 10;
 
   while (attempts < maxAttempts) {
     try {
       const result = await sock.sendMessage(jid, content);
-      console.log(`✅ Message sent successfully to ${jid}`);
+      console.log(` Message sent to ${jid}`);
       return result;
     } catch (err: any) {
-      if (err?.output?.statusCode === 428 || 
-          err?.message?.includes("Connection Closed") || 
-          err?.message?.includes("closed")) {
-        
-        console.log(`⏳ Connection not fully ready (attempt ${attempts + 1}/${maxAttempts})...`);
-        await new Promise(r => setTimeout(r, 1200));
+      const isRetryable =
+        err?.output?.statusCode === 428 ||
+        err?.message?.includes("Connection Closed") ||
+        err?.message?.includes("closed");
+
+      if (isRetryable) {
+        console.log(
+          ` Waiting for connection (${attempts + 1}/${maxAttempts})...`
+        );
+        await new Promise((r) => setTimeout(r, 1500));
         attempts++;
         continue;
       }
+
       throw err;
     }
   }
 
-  throw new Error("Connection not ready after waiting. Try again in 10 seconds.");
+  throw new Error(" Failed to send: connection never stabilized.");
 }
 
-// ===================== EXPORTS =====================
 export { sendWhatsAppMessage, autoInit as initWhatsApp };
 
-// CommonJS support for Rust bridge
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = {
     sendWhatsAppMessage,
