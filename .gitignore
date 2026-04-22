@@ -37,8 +37,9 @@ flamegraph.svg
 # === Coverage ===
 coverage/
 tarpaulin-report.html
-
+auth
 # === Binaries / builds ===
 *.exe
 *.out
 *.dSYM
+node_modules
