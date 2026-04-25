@@ -210,7 +210,6 @@ fn main() -> anyhow::Result<()> {
         }
     });
 
-    // ==================== Main Loop ====================
     let mut mode = Mode::Shell;
     let mut terrek_buffer = String::new();
     let mut current_output = String::new();

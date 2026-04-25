@@ -48,7 +48,53 @@ struct EmailConfig {
     username: String,
     password: String,
 }
+// ===================== DISCORD BOT API =====================
 
+fn get_discord_token() -> Result<String> {
+    std::env::var("TERREK_DISCORD_TOKEN")
+        .context("TERREK_DISCORD_TOKEN is not set")
+}
+
+fn get_discord_default_channel() -> Option<String> {
+    std::env::var("TERREK_DISCORD_CHANNEL_ID").ok()
+}
+
+fn send_discord_message(text: &str, channel_id: Option<&str>) -> Result<()> {
+    let token = get_discord_token()?;
+    let client = reqwest::blocking::Client::new();
+
+    let target_channel = match (channel_id, get_discord_default_channel()) {
+        (Some(id), _) => id.to_string(),
+        (None, Some(default)) => default,
+        (None, None) => {
+            return Err(anyhow::anyhow!(
+                "No channel ID provided.\n\nTip: Set default with:\nexport TERREK_DISCORD_CHANNEL_ID=\"1155925866413568185\""
+            ));
+        }
+    };
+
+    let payload = json!({
+        "content": text,
+        "username": "Terrek CLI"
+    });
+
+    let url = format!("https://discord.com/api/v10/channels/{}/messages", target_channel);
+
+    let response = client
+        .post(&url)
+        .header("Authorization", format!("Bot {}", token))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()?;
+
+    if response.status().is_success() {
+        println!("✅ Sent to Discord → {}", target_channel);
+        Ok(())
+    } else {
+        let error_body = response.text().unwrap_or_default();
+        anyhow::bail!("Discord API Error: {}", error_body)
+    }
+}
 // ===================== SLACK BOT API =====================
 
 fn get_slack_bot_token() -> Result<String> {
@@ -754,6 +800,24 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                 Err(e) => format!("❌ {}", e),
             }
         }
+        "discord" | "dc" => {
+    if parts.len() < 2 {
+        return Ok(TerrekAction::Output(
+            "Usage:\n  discord [#channel_id] \"message\"\n\nExamples:\n  dc \"Hello from Terrek!\"\n  discord 123456789012345678 \"Deployment completed\"".to_string()
+        ));
+    }
+
+    let (channel_id, message) = if parts[1].parse::<u64>().is_ok() { 
+        (Some(parts[1]), parts[2..].join(" "))
+    } else {
+        (None, parts[1..].join(" "))
+    };
+
+    match send_discord_message(&message, channel_id) {
+        Ok(_) => "✅ Message sent to Discord".to_string(),
+        Err(e) => format!("❌ {}", e),
+    }
+}
                    // ===================== SLACK =====================
         "slack" | "sl" => {
             if parts.len() < 2 {
@@ -774,7 +838,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
             }
         }
 
-        "help" => {
+                "help" => {
             "Available commands:\n\
              hello, time, clear\n\
              open <app|url>\n\
@@ -789,9 +853,9 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
              telegram photo <file> [caption]\n\
              whatsapp <number> <message>   (or wa ...)\n\
              slack [#channel] \"message\"   (or sl ...)\n\
+             discord [#channel_id] \"message\"   (or dc ...)\n\
              history, search <word>".to_string()
         }
-
         _ => format!("Unknown command: {}", parts[0]),
     };
 
