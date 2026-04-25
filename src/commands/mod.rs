@@ -131,7 +131,6 @@ fn send_slack_message(text: &str, channel: Option<&str>) -> Result<()> {
         anyhow::bail!("Slack API Error: {}", error_body)
     }
 }
-// ===================== WHATSAPP HELPER FUNCTIONS =====================
 
 // ===================== WHATSAPP =====================
 
