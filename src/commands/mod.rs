@@ -10,7 +10,7 @@ use chrono::{Local, TimeZone};
 use std::process::Command;
 use std::fs;
 use std::io::{self, Write};
-
+use serde_json::json;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 
@@ -49,6 +49,42 @@ struct EmailConfig {
     password: String,
 }
 
+// ===================== SLACK BOT API =====================
+
+fn get_slack_bot_token() -> Result<String> {
+    std::env::var("TERREK_SLACK_BOT_TOKEN")
+        .context("TERREK_SLACK_BOT_TOKEN is not set.\nSet it with: export TERREK_SLACK_BOT_TOKEN=\"xoxb-...\"")
+}
+
+fn send_slack_message(text: &str, channel: Option<&str>) -> Result<()> {
+    let token = get_slack_bot_token()?;
+    let client = reqwest::blocking::Client::new();
+
+    // Default to #general if no channel is provided
+    let target_channel = channel.unwrap_or("#general");
+
+   let payload = json!({
+        "channel": target_channel,
+        "text": text,
+        "username": "Terrek CLI",
+        "icon_emoji": ":rocket:"
+    });
+
+    let response = client
+        .post("https://slack.com/api/chat.postMessage")
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Content-Type", "application/json")
+        .json(&payload)
+        .send()?;
+
+    if response.status().is_success() {
+        println!("✅ Successfully sent to Slack → #{}", target_channel);
+        Ok(())
+    } else {
+        let error_body = response.text().unwrap_or_default();
+        anyhow::bail!("Slack API Error: {}", error_body)
+    }
+}
 // ===================== WHATSAPP HELPER FUNCTIONS =====================
 
 // ===================== WHATSAPP =====================
@@ -718,7 +754,26 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                 Err(e) => format!("❌ {}", e),
             }
         }
-        
+                   // ===================== SLACK =====================
+        "slack" | "sl" => {
+            if parts.len() < 2 {
+                return Ok(TerrekAction::Output(
+                    "Usage:\n  slack [#channel] \"message\"\n\nExamples:\n  sl \"Hello from Terrek!\"\n  slack #random Deployment completed successfully\n  slack #terraform \"Plan finished\"".to_string()
+                ));
+            }
+
+            let (channel, message) = if parts[1].starts_with('#') {
+                (Some(parts[1]), parts[2..].join(" "))
+            } else {
+                (None, parts[1..].join(" "))
+            };
+
+            match send_slack_message(&message, channel) {
+                Ok(_) => "✅ Message sent to Slack".to_string(),
+                Err(e) => format!("❌ {}", e),
+            }
+        }
+
         "help" => {
             "Available commands:\n\
              hello, time, clear\n\
@@ -733,6 +788,7 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
              telegram setup\n\
              telegram photo <file> [caption]\n\
              whatsapp <number> <message>   (or wa ...)\n\
+             slack [#channel] \"message\"   (or sl ...)\n\
              history, search <word>".to_string()
         }
 
