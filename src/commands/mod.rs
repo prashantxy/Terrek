@@ -779,9 +779,6 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                 _ => "Unknown mode. Use: mail manual or mail ai".to_string(),
             }
         }
-
-        // ===================== WHATSAPP =====================
-                // ===================== WHATSAPP =====================
                "whatsapp" | "wa" => {
             if parts.len() < 3 {
                 return Ok(TerrekAction::Output(
@@ -836,6 +833,40 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
                 Err(e) => format!("❌ {}", e),
             }
         }
+        "telegram" | "tg" => {
+            if parts.len() < 2 {
+                return Ok(TerrekAction::Output(
+                    "Usage:\n  telegram <message>\n  tg \"message\"\n  telegram setup\n  telegram photo <filepath> [caption]".to_string()
+                ));
+            }
+
+            match parts[1] {
+                "setup" => {
+                    setup_telegram()?;
+                    "Telegram setup instructions shown.".to_string()
+                }
+                "photo" => {
+                    if parts.len() < 3 {
+                        "Usage: telegram photo <filepath> [caption]".to_string()
+                    } else {
+                        let path = parts[2];
+                        let caption = if parts.len() > 3 { Some(parts[3..].join(" ")) } else { None };
+                        match send_telegram_photo(path, caption.as_deref()) {
+                            Ok(_) => "📸 Photo sent to Telegram".to_string(),
+                            Err(e) => format!(" {}", e),
+                        }
+                    }
+                }
+                _ => {
+                    let message = parts[1..].join(" ");
+                    match send_telegram_message(&message) {
+                        Ok(_) => format!("📱 Telegram message sent: {}", message),
+                        Err(e) => format!(" {}", e),
+                    }
+                }
+            }
+        }
+
 
                 "help" => {
             "Available commands:\n\
