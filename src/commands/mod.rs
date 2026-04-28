@@ -813,8 +813,8 @@ pub fn handle_command(context: &ContextState, cmd: &str) -> Result<TerrekAction>
     };
 
     match send_discord_message(&message, channel_id) {
-        Ok(_) => "✅ Message sent to Discord".to_string(),
-        Err(e) => format!("❌ {}", e),
+        Ok(_) => " Message sent to Discord".to_string(),
+        Err(e) => format!(" {}", e),
     }
 }
                    // ===================== SLACK =====================

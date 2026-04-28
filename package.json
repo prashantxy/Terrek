@@ -15,9 +15,13 @@
   },
   "license": "ISC",
   "dependencies": {
+    "@composio/core": "^0.8.0",
+    "@composio/openai": "^0.8.0",
     "@whiskeysockets/baileys": "7.0.0-rc.9",
     "baileys": "7.0.0-rc.9",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "openai": "^6.35.0",
     "qrcode-terminal": "^0.12.0"
   },
   "devDependencies": {
