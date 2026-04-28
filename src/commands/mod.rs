@@ -299,7 +299,7 @@ fn send_email_native(to: &str, subject: &str, body: &str) -> Result<()> {
         Err(e) => {
             println!(" Failed to send email: {}", e);
             if e.to_string().contains("535") || e.to_string().contains("authentication") {
-                println!("\n💡 TIP: Regenerate your Gmail App Password at https://myaccount.google.com/apppasswords");
+                println!("\n TIP: Regenerate your Gmail App Password at https://myaccount.google.com/apppasswords");
             }
             Err(e.into())
         }
