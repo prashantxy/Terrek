@@ -1,1 +1,7 @@
-//running on two process currently will update it soon
+use::std::requests;
+
+async fn aryan( str : &self){
+    .post()
+    .json()
+    match.spawn()
+}
