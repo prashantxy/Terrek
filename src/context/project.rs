@@ -10,7 +10,7 @@ pub fn detect_project_root(start : &Path) -> Option<Pathbuf>{
         {
             return Some(current)
         }
-
+ 
         if !current.pop()
         {
             break;
