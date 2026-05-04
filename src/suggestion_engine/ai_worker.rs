@@ -3,7 +3,7 @@ use std::thread;
 use std::time::Duration;
 use crate::ai::gemini::ask_gemini;
 use crate::context::ContextState;
-
+ 
 
 pub fn start_ai_worker(
     rx: Receiver<String>,
