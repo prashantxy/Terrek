@@ -19,6 +19,7 @@
     "@composio/openai": "^0.8.0",
     "@whiskeysockets/baileys": "7.0.0-rc.9",
     "baileys": "7.0.0-rc.9",
+    "composio-core": "^0.5.39",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "openai": "^6.35.0",
