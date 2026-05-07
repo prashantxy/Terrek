@@ -9,7 +9,9 @@ let sock: any = null;
 let isInitializing = false;
 let connectionState: "idle" | "connecting" | "open" | "closed" = "idle";
 
+async () =>{
 
+}
 async function destroySocket() {
   try {
     if (sock) {
