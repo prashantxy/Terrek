@@ -9,8 +9,8 @@ let sock: any = null;
 let isInitializing = false;
 let connectionState: "idle" | "connecting" | "open" | "closed" = "idle";
 
-async () =>{
-
+const check = async () =>{
+    
 }
 async function destroySocket() {
   try {
