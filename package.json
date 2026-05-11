@@ -15,8 +15,10 @@
   },
   "license": "ISC",
   "dependencies": {
-    "@composio/core": "^0.8.0",
+    "@composio/core": "^0.8.1",
     "@composio/openai": "^0.8.0",
+    "@composio/openai-agents": "^0.9.0",
+    "@openai/agents": "^0.11.3",
     "@whiskeysockets/baileys": "7.0.0-rc.9",
     "baileys": "7.0.0-rc.9",
     "composio-core": "^0.5.39",
