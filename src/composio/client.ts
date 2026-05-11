@@ -17,3 +17,27 @@ const tools = await session.tools();
 // const sessionId = session.sessionId;
 // const session = await composio.use(sessionId);
 
+const agent = new Agent({
+  name: "Personal Assistant",
+  instructions: "You are a helpful personal assistant. Use Composio tools to take action.",
+  model: "gpt-5.2",
+  tools,
+});
+const memory = new MemorySession();
+const readline = createInterface({ input: process.stdin, output: process.stdout });
+console.log(`
+What task would you like me to help you with?
+I can use tools like Gmail, GitHub, Linear, Notion, and more.
+(Type 'exit' to exit)
+Example tasks:
+  - 'Summarize my emails from today'
+  - 'List all open issues on the composio github repository'
+`);
+while (true) {
+  const input = (await readline.question("You: ")).trim();
+  if (input.toLowerCase() === "exit") break;
+  process.stdout.write("Assistant: ");
+  const result = await run(agent, input, { session: memory });
+  process.stdout.write(`${result.finalOutput}\n`);
+}
+readline.close();
