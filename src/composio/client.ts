@@ -20,7 +20,7 @@ const tools = await session.tools();
 const agent = new Agent({
   name: "Personal Assistant",
   instructions: "You are a helpful personal assistant. Use Composio tools to take action.",
-  model: "gpt-5.2",
+  model: "opus",
   tools,
 });
 const memory = new MemorySession();
