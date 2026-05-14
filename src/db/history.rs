@@ -9,9 +9,7 @@ pub fn get_history(limit: i64) -> Result<Vec<(String, String, i64)>> {
          ORDER BY timestamp DESC
          LIMIT ?1",
     )?;
-
     let rows = stmt.query_map([limit], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
-
     Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
