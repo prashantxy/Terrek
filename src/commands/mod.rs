@@ -88,7 +88,7 @@ fn send_discord_message(text: &str, channel_id: Option<&str>) -> Result<()> {
         .send()?;
 
     if response.status().is_success() {
-        println!("✅ Sent to Discord → {}", target_channel);
+        println!(" Sent to Discord → {}", target_channel);
         Ok(())
     } else {
         let error_body = response.text().unwrap_or_default();
@@ -242,7 +242,7 @@ fn open_reddit_fallback(subreddit: &str, title: &str, body: &str) -> Result<()> 
     let status = Command::new("open").arg(&url).status();
 
     if status.is_ok() && status.unwrap().success() {
-        println!("✅ Browser opened. You can post manually.");
+        println!("Browser opened. You can post manually.");
     } else {
         let _ = Command::new("sh")
             .arg("-c")
