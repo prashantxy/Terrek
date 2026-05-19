@@ -385,8 +385,6 @@ fn setup_telegram() -> Result<()> {
     Ok(())
 }
 
-// ===================== UTILS =====================
-
 fn find_app(input: &str) -> Option<String> {
     let matcher = SkimMatcherV2::default();
     let paths = ["/Applications", "/System/Applications"];
