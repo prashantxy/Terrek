@@ -237,7 +237,7 @@ fn open_reddit_fallback(subreddit: &str, title: &str, body: &str) -> Result<()> 
         subreddit, encoded_title, encoded_body
     );
 
-    println!("🌐 Opening Reddit submit page...");
+    println!(" Opening Reddit submit page...");
 
     let status = Command::new("open").arg(&url).status();
 
