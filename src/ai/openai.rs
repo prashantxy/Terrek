@@ -14,7 +14,7 @@ impl OpenAi{
                 }
             ]
         });
- 
+  
         let res = client
            .post("https://api.openai.com/v1/chat/completions")
             .header("Authorization", format!("Bearer {}", self.api_key))

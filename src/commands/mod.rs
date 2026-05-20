@@ -391,7 +391,7 @@ fn find_app(input: &str) -> Option<String> {
 
     let mut best_match = None;
     let mut best_score = i64::MIN;
-
+ 
     for dir in paths {
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
