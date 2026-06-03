@@ -44,9 +44,7 @@ pub fn draw(mux: &Multiplexer) -> Result<()> {
         }
     }
 
-    // =========================
-    // Status Bar
-    // =========================
+   
     draw_status_bar(&mut stdout, mux, cols, rows)?;
 
     stdout.flush()?;
