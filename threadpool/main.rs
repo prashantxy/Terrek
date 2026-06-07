@@ -15,6 +15,11 @@ struct Worker{
     thread : Option<thread::JoinHandle<()>>;
 }
 
+pub struct ThreadPoolBuilder{
+    size: usize,
+    name_prefix: String,
+    stack_size: Option<usize>,
+}
 fn main(){
     let pool = ThreadPool::new(5);
      
@@ -27,5 +32,4 @@ fn main(){
     }
     // Pool is dropped here, triggering graceful shutdown
     // All tasks complete before main exits
-
 }
