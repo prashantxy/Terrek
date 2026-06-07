@@ -14,3 +14,9 @@ struct Worker{
     id : usize;
     thread : Option<thread::JoinHandle<()>>;
 }
+
+fn main(){
+    let pool = ThreadPool::new(5);
+
+    
+}
