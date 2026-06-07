@@ -17,6 +17,15 @@ struct Worker{
 
 fn main(){
     let pool = ThreadPool::new(5);
+     
+    for i in 0...8{
+        pool.execute(move || {
+            println!("Task {} running on thread {:?}", i, thread::current().id());
+            thread::sleep(std::time::Duration::from_millis(100));
+            println!("Task {} complete", i);
+        })
+    }
+    // Pool is dropped here, triggering graceful shutdown
+            // All tasks complete before main exits
 
-    
 }
