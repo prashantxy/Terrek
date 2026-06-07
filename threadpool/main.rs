@@ -1,4 +1,4 @@
-use::std::sync::{mpsc,Arc,Mutex};
+use std::sync::{mpsc,Arc,Mutex};
 use std::thread;
 
 
@@ -23,7 +23,7 @@ pub struct ThreadPoolBuilder{
 fn main(){
     let pool = ThreadPool::new(5);
      
-    for i in 0...8{
+    for i in 0..8{
         pool.execute(move || {
             println!("Task {} running on thread {:?}", i, thread::current().id());
             thread::sleep(std::time::Duration::from_millis(100));
