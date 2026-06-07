@@ -10,6 +10,7 @@ use std::io::{stdout, Write};
 use crate::multiplexer::Multiplexer;
 use crate::multiplexer::pane::Pane;
 
+pub async fn Test()
 pub fn draw(mux: &Multiplexer) -> Result<()> {
     let mut stdout = stdout();
     let (cols, rows) = terminal::size()?;
