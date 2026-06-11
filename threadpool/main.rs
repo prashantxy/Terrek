@@ -9,7 +9,7 @@ use std::thread;
 // 'static: lives for the entire program duration
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
-// Worker holds a thread handle and an identifier
+// Worker holds a thread handle and an identifier 
 struct Worker{
     id : usize;
     thread : Option<thread::JoinHandle<()>>;
