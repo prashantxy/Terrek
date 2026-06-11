@@ -8,14 +8,22 @@ const composio = new Composio({
     provider: new OpenAIAgentsProvider()
 });
 
-
-
-
-
-
 const userID="moralizer_001";
 const session = await composio.create(userID);
 const tools = await session.tools();
+
+ const agent_Opus = new Agent({
+  name: "Personal Assistant",
+  instructions: "You are a helpful personal assistant. Use Composio tools to take action.",
+  model: "opus",
+  tools,
+ })
+ 
+ 
+const user = "name what should be there";
+
+
+
 
 // For multi-turn, store the session ID in your db and reuse instead of calling create() again:
 // const sessionId = session.sessionId;
