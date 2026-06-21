@@ -24,6 +24,10 @@ pub struct ThreadPoolBuilder{
 impl soundsgood(){
       let threadpool  
 }
+pub impl threadpool_nature_one(){
+      //having all kind of commections ;
+      let casepool = numberofprocesses.os()
+}
 fn main(){
     let pool = ThreadPool::new(5);
      
