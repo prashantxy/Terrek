@@ -32,7 +32,7 @@ async function autoInit() {
   console.log("🔄 Auto-initializing WhatsApp...");
 
   try {
-    const { state, saveCreds } = await useMultiFileAuthState("auth");
+    const { state, saveCreds } = await useMultiFileAuthState(process.env.WA_AUTH_DIR ?? "auth");
     const { version } = await fetchLatestBaileysVersion();
 
     sock = makeWASocket({

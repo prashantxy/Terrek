@@ -1,43 +1,22 @@
-use crossbeam_channel::{Receiver, Sender};
+//! Runs slow palette work (AI requests, network sends) off the input thread so
+//! the terminal stays responsive and the user can cancel with Esc.
+
+use std::sync::mpsc::Sender;
 use std::thread;
-use std::time::Duration;
-use crate::ai::gemini::ask_gemini;
-use crate::context::ContextState;
- 
 
-pub fn start_ai_worker(
-    rx: Receiver<String>,
-    tx: Sender<Vec<String>>,
-    context: ContextState,
-) {
+/// Run `job` on a new thread and deliver `wrap(id, result)` through `tx`.
+/// A cancelled job still finishes, but its result is ignored by the receiver.
+pub fn spawn_job<T, M>(
+    id: u64,
+    tx: Sender<M>,
+    job: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+    wrap: fn(u64, anyhow::Result<T>) -> M,
+) where
+    T: Send + 'static,
+    M: Send + 'static,
+{
     thread::spawn(move || {
-        for input in rx {
-
-            if input.len() < 3 {
-                continue;
-            }
-
-            // debounce
-            thread::sleep(Duration::from_millis(400));
-
-            let prompt = format!(
-                "You are a CLI suggestion engine.
-User typed: \"{}\"
-Suggest 5 possible Terrek commands.
-Return only command list, one per line.
-No explanation.",
-                input
-            );
-
-            match ask_gemini(&context, &prompt) {
-                Ok(response) => {
-                    let suggestions: Vec<String> =
-                        response.lines().map(|l| l.trim().to_string()).collect();
-
-                    let _ = tx.send(suggestions);
-                }
-                Err(_) => {}
-            }
-        }
+        let result = job();
+        let _ = tx.send(wrap(id, result));
     });
 }

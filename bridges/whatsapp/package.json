@@ -1,12 +1,12 @@
 {
-  "name": "terrek",
+  "name": "terrek-whatsapp-bridge",
   "version": "1.0.0",
-  "description": "> A terminal-native workflow engine with built-in AI.",
+  "description": "Local HTTP bridge that lets `terrek send whatsapp` deliver messages",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
-    "start": "node dist/server.js",
+    "dev": "tsx watch server.ts",
+    "start": "tsx server.ts",
     "build": "tsc"
   },
   "repository": {

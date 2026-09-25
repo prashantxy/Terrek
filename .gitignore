@@ -1,45 +1,34 @@
-# === Rust / Cargo ===
+# Rust
 /target/
 **/*.rs.bk
-Cargo.lock
-!.cargo/config.toml
 
-# === SQLite (CRITICAL for Terrek) ===
-terrek.db
-terrek.db-shm
-terrek.db-wal
+# Local databases (history now lives in the user data dir; these are from 0.1)
 *.db
 *.db-shm
 *.db-wal
 
-# === Environment files ===
+# Secrets
 .env
 .env.*
+auth/
+**/auth/
 
-# === Logs ===
-*.log
+# Node (WhatsApp bridge)
+node_modules/
+bridges/whatsapp/dist/
 
-# === OS files ===
+# OS / editors
 .DS_Store
 Thumbs.db
-
-# === Editor / IDE ===
 .vscode/
 .idea/
 *.swp
 *.swo
 *.tmp
+*.log
 
-# === Debug / profiling ===
+# Profiling / coverage
 perf.data*
 flamegraph.svg
-
-# === Coverage ===
 coverage/
 tarpaulin-report.html
-auth
-# === Binaries / builds ===
-*.exe
-*.out
-*.dSYM
-node_modules

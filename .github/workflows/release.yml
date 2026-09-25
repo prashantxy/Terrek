@@ -2,56 +2,46 @@ name: Release
 
 on:
   push:
-    tags:
-      - "v*"
+    tags: ["v*"]
 
 permissions:
   contents: write
 
 jobs:
   build:
-    name: Build Release
+    name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
-
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-latest, ubuntu-latest, windows-latest]
-
+        include:
+          - { os: macos-latest, target: aarch64-apple-darwin }
+          - { os: macos-latest, target: x86_64-apple-darwin }
+          - { os: ubuntu-latest, target: x86_64-unknown-linux-musl, cross: true }
+          - { os: ubuntu-latest, target: aarch64-unknown-linux-musl, cross: true }
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build
-        run: cargo build --release
-
-      # Debug step 
-      - name: Debug build output
-        run: |
-          echo "Listing target/release:"
-          ls -R target || dir target
-        shell: bash
-
-      # Unix (Linux + macOS)
-      - name: Prepare binary (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          mkdir -p release
-          cp target/release/terrek release/terrek-${{ matrix.os }}
-          chmod +x release/terrek-${{ matrix.os }}
-
-      # Windows (PowerShell)
-      - name: Prepare binary (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          mkdir release
-          Copy-Item target/release/terrek.exe release/terrek-${{ matrix.os }}.exe
-        shell: pwsh
-
-      #  Upload release assets
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v2
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
         with:
-          files: release/*
+          targets: ${{ matrix.target }}
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked
+      - name: Build
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --locked --target ${{ matrix.target }}
+          else
+            cargo build --release --locked --target ${{ matrix.target }}
+          fi
+      - name: Package
+        run: |
+          archive="terrek-${{ matrix.target }}.tar.gz"
+          tar -czf "$archive" -C "target/${{ matrix.target }}/release" terrek
+          shasum -a 256 "$archive" > "$archive.sha256"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            terrek-${{ matrix.target }}.tar.gz
+            terrek-${{ matrix.target }}.tar.gz.sha256
+          generate_release_notes: true

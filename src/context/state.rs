@@ -1,68 +1,37 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
+use super::git::{git_state, GitState};
+use super::project::{detect_kinds, detect_project_root};
+use crate::db::CommandRecord;
+
+#[derive(Debug, Clone, Default)]
 pub struct ContextState {
-    pub project_root: Option<PathBuf>,
-    pub git_branch: Option<String>,
     pub os: String,
     pub shell: String,
-    pub file_tree_snapshot: Option<String>,
-    pub last_commands: Vec<String>,
-    pub last_error: Option<String>,
-    pub last_exit_code: Option<i32>,
-    pub active_file: Option<PathBuf>,
-    pub is_internal: bool,
+    pub cwd: PathBuf,
+    pub project_root: Option<PathBuf>,
+    pub project_kinds: Vec<&'static str>,
+    pub git: Option<GitState>,
+    /// Oldest first.
+    pub recent_commands: Vec<CommandRecord>,
 }
 
 impl ContextState {
-    pub fn new() -> Self {
+    pub fn capture(cwd: &Path, shell: &str, mut recent_newest_first: Vec<CommandRecord>) -> Self {
+        let project_root = detect_project_root(cwd);
+        let project_kinds = project_root
+            .as_deref()
+            .map(detect_kinds)
+            .unwrap_or_default();
+        recent_newest_first.reverse();
         Self {
-            project_root: None,
-            git_branch: None,
-            file_tree_snapshot: None,
-            shell: std::env::var("SHELL").unwrap_or("unknown".into()),
             os: std::env::consts::OS.to_string(),
-            last_commands: Vec::new(),
-            last_error: None,
-            last_exit_code: None,
-            active_file: None,
-            is_internal: false,
+            shell: shell.to_string(),
+            cwd: cwd.to_path_buf(),
+            git: git_state(cwd),
+            project_root,
+            project_kinds,
+            recent_commands: recent_newest_first,
         }
-    }
-
-    pub fn add_command(&mut self, command: String) {
-        if self.last_commands.len() >= 5 {
-            self.last_commands.remove(0);
-        }
-        self.last_commands.push(command);
-    }
-
-    pub fn update_exit_code(&mut self, code: i32, stderr: Option<String>) {
-        self.last_exit_code = Some(code);
-
-        if code != 0 {
-            self.last_error = stderr;
-        } else {
-            self.last_error = None;
-        }
-    }
-
-    pub fn set_project_root(&mut self, path: PathBuf) {
-        self.project_root = Some(path);
-    }
-
-    pub fn set_git_branch(&mut self, branch: Option<String>) {
-        self.git_branch = branch;
-    }
-
-    pub fn debug_print(&self) {
-        println!("----------------------------");
-        println!("TERREK CONTEXT DEBUG");
-        println!("Project Root: {:?}", self.project_root);
-        println!("Git Branch: {:?}", self.git_branch);
-        println!("Last Commands: {:?}", self.last_commands);
-        println!("Last Exit Code: {:?}", self.last_exit_code);
-        println!("Last Error: {:?}", self.last_error);
-        println!("----------------------------");
     }
 }
-

@@ -54,50 +54,20 @@ You can contribute in multiple ways:
 
 ## 🏗 Project Structure
 
-```bash
-src/
-  ai/           # AI providers + abstraction
-  commands/ 
-  sessions/
-  pty/
-  suggestion_engine/
-  terminal/
-  workspace/
-  renderer/
-  mulriplexer/
-  db/
-  core/
-  context/
-  session_manager/windows
-  ui/          
-  config/       
-```
+The layout and data flow are described in the README's "How it works" section. In short:
+`sessions/` runs the interactive loop, `pty/` owns the shell and its hooks, `ai/` holds one
+file per provider behind the `ChatModel` trait, and `commands/` implements everything the
+CLI and palette can do (both use the grammar in `cli.rs`).
 
 ---
 
-##  Getting Started
-
-### 1. Fork & Clone
+## ✅ Before opening a PR
 
 ```bash
-git clone https://github.com/prashantxy/Terrek.git
-cd Terrek
-```
-
----
-
-### 2. Build
-
-```bash
-cargo build
-```
-
----
-
-### 3. Run
-
-```bash
-cargo run
+cargo fmt
+cargo clippy --all-targets -- -D warnings
+cargo clippy --all-targets --no-default-features -- -D warnings
+cargo test          # includes a test that drives real zsh and bash through a PTY
 ```
 
 ---
@@ -115,7 +85,7 @@ cargo run
 ### Architecture Rules
 
 * Do NOT mix UI and business logic
-* AI providers must implement a common trait
+* AI providers implement `ai::ChatModel`; add the kind to `ai/provider.rs` and wire it in `ai/auto.rs`
 * Keep provider-specific logic isolated
 
 ---
