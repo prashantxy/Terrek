@@ -2,12 +2,14 @@ import express, { Request, Response } from "express";
 import {
   initWhatsApp,        // now works
   sendWhatsAppMessage,
-} from "./commands/whatsapp.js";
+} from "./whatsapp.js";
 
 const app = express();
 app.use(express.json());
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT ?? 3000);
+// Loopback only: anyone who can reach this port can send messages as you.
+const HOST = process.env.HOST ?? "127.0.0.1";
 
 // Initialize WhatsApp
 await initWhatsApp();
@@ -35,6 +37,6 @@ app.post("/send", async (req: Request, res: Response) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://localhost:${PORT}`);
+app.listen(PORT, HOST, () => {
+  console.log(`🚀 Server running at http://${HOST}:${PORT}`);
 });

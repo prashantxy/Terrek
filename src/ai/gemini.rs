@@ -1,72 +1,92 @@
-use anyhow::{Result, anyhow};
+use anyhow::{bail, Result};
 use reqwest::blocking::Client;
-use serde_json::json;
+use serde_json::{json, Value};
 
-use crate::config::load_config;
-use crate::context::ContextState;
+use super::{check_status, http_client, ChatModel};
 
-use crate::ai::prompts::build_gemini_prompt;
+const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 
-fn get_key() -> Result<String> {
-    if let Some(cnf) = load_config() {
-        return Ok(cnf.api_key);
-    }
-
-    if let Ok(env) = std::env::var("GEMINI_API_KEY") {
-        return Ok(env);
-    }
-
-    Err(anyhow!("Run `terrek ai setup` first"))
+pub struct Gemini {
+    client: Client,
+    api_key: String,
+    model: String,
+    base_url: String,
 }
 
-pub fn ask_gemini(context: &ContextState, user_input: &str) -> Result<String> {
-    let key = get_key()?;
+impl Gemini {
+    pub fn new(api_key: String, model: String, base_url: Option<String>) -> Result<Self> {
+        Ok(Self {
+            client: http_client()?,
+            api_key,
+            model,
+            base_url: base_url.unwrap_or_else(|| DEFAULT_BASE_URL.into()),
+        })
+    }
+}
 
-    let final_input = if user_input.trim().is_empty() {
-        if context.last_exit_code.unwrap_or(0) != 0 {
-            "Explain why the last command failed and suggest a fix."
-        } else {
-            "Explain the last terminal activity."
-        }
-    } else {
-        user_input
-    };
+pub(crate) fn request_body(system: &str, user: &str) -> Value {
+    json!({
+        "systemInstruction": { "parts": [{ "text": system }] },
+        "contents": [{ "role": "user", "parts": [{ "text": user }] }]
+    })
+}
 
-    let prompt = build_gemini_prompt(context, final_input);
+pub(crate) fn parse_response(json: &Value) -> Result<String> {
+    let text: Vec<&str> = json["candidates"][0]["content"]["parts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|part| part["text"].as_str())
+        .collect();
+    if text.is_empty() {
+        let reason = json["candidates"][0]["finishReason"]
+            .as_str()
+            .or_else(|| json["promptFeedback"]["blockReason"].as_str())
+            .unwrap_or("no text");
+        bail!("Gemini returned no answer ({reason})");
+    }
+    Ok(text.concat())
+}
 
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={}",
-        key
-    );
-
-    let body = json!({
-        "contents": [{
-            "parts": [{ "text": prompt }]
-        }]
-    });
-
-    let client = Client::new();
-
-    let response = client.post(&url).json(&body).send()?;
-
-    if !response.status().is_success() {
-        return Err(anyhow!(
-            "Gemini API error: {}",
-            response.text().unwrap_or_default()
-        ));
+impl ChatModel for Gemini {
+    fn complete(&self, system: &str, user: &str) -> Result<String> {
+        // The key goes in a header, not the URL, so it never shows up in error messages or logs.
+        let url = format!(
+            "{}/models/{}:generateContent",
+            self.base_url.trim_end_matches('/'),
+            self.model
+        );
+        let response = self
+            .client
+            .post(url)
+            .header("x-goog-api-key", &self.api_key)
+            .json(&request_body(system, user))
+            .send()?;
+        let response = check_status("Gemini", response)?;
+        parse_response(&response.json()?)
     }
 
-    let res: serde_json::Value = response.json()?;
+    fn label(&self) -> String {
+        format!("gemini/{}", self.model)
+    }
+}
 
-    let text = res
-        .get("candidates")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("content"))
-        .and_then(|c| c.get("parts"))
-        .and_then(|p| p.get(0))
-        .and_then(|p| p.get("text"))
-        .and_then(|t| t.as_str())
-        .unwrap_or("No response from Gemini");
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    Ok(text.to_string())
+    #[test]
+    fn concatenates_parts() {
+        let json = json!({"candidates": [{"content": {"parts": [{"text": "a"}, {"text": "b"}]}}]});
+        assert_eq!(parse_response(&json).unwrap(), "ab");
+    }
+
+    #[test]
+    fn reports_block_reason() {
+        let json = json!({"promptFeedback": {"blockReason": "SAFETY"}});
+        assert!(parse_response(&json)
+            .unwrap_err()
+            .to_string()
+            .contains("SAFETY"));
+    }
 }

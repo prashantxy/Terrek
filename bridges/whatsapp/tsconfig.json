@@ -6,7 +6,10 @@
     "esModuleInterop": true,
     "strict": true,
     "outDir": "./dist",
-    "rootDir":"./src"
+    "rootDir": "."
   },
-  "include": ["src"]
+  "include": [
+    "server.ts",
+    "whatsapp.ts"
+  ]
 }

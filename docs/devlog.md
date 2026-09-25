@@ -65,4 +65,4 @@ terrek ai setup
 → paste key
 → done
 
-![alt text](image.png)
+![Architecture sketch](assets/architecture-sketch.png)

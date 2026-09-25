@@ -1,53 +1,34 @@
-use std::sync::mpsc::{Sender, channel};
+//! Writes history on its own thread so the interactive loop never waits on disk.
+
+use std::path::PathBuf;
+use std::sync::mpsc::{channel, Sender};
 use std::thread;
 
-use rusqlite::{Connection, params};
+use anyhow::Result;
 
-#[derive(Debug)]
-pub enum DbEvent {
-    StoreCommand {
-        session_id: String,
-        command: String,
-        output: String,
-        timestamp: i64,
-    },
+use super::{CommandRecord, HistoryStore};
+
+pub struct HistoryWriter {
+    tx: Sender<CommandRecord>,
 }
 
-pub fn start_db_worker() -> Sender<DbEvent> {
-    let (tx, rx) = channel::<DbEvent>();
-
-    thread::spawn(move || {
-        let conn = Connection::open("terrek.db").expect("Failed to open DB");
-
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS commands (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                session_id TEXT,
-                command TEXT,
-                output TEXT,
-                timestamp INTEGER
-            )",
-            [],
-        )
-        .expect("Failed to create table");
-
-        while let Ok(event) = rx.recv() {
-            match event {
-                DbEvent::StoreCommand {
-                    session_id,
-                    command,
-                    output,
-                    timestamp,
-                } => {
-                    let _ = conn.execute(
-                        "INSERT INTO commands (session_id, command, output, timestamp)
-                         VALUES (?1, ?2, ?3, ?4)",
-                        params![session_id, command, output, timestamp],
-                    );
+impl HistoryWriter {
+    /// Opens the store up front so a broken database is reported immediately.
+    pub fn start(path: PathBuf) -> Result<Self> {
+        let store = HistoryStore::open(&path)?;
+        let (tx, rx) = channel::<CommandRecord>();
+        thread::Builder::new()
+            .name("terrek-history".into())
+            .spawn(move || {
+                for record in rx {
+                    // A failed insert must not take down the user's shell.
+                    let _ = store.insert(&record);
                 }
-            }
-        }
-    });
+            })?;
+        Ok(Self { tx })
+    }
 
-    tx
+    pub fn record(&self, record: CommandRecord) {
+        let _ = self.tx.send(record);
+    }
 }
